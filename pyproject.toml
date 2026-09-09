@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "echorin"
-version = "0.1.0"
+version = "1.0.0"
 description = "Radar and sonar signal-processing simulation platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,6 +22,7 @@ dev = [
     "pytest>=8.2",
     "ruff>=0.6",
 ]
+release = ["Pillow>=10"]
 
 [project.scripts]
 echorin = "echorin.__main__:main"

@@ -1,0 +1,6 @@
+{
+  "sample_count": 200,
+  "raw_position_rmse_m": 29.892233791150723,
+  "filtered_position_rmse_m": 6.419315172878899,
+  "average_processing_time_ms": 0.08494020100749079
+}

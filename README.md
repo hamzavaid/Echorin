@@ -1,20 +1,52 @@
 # Echorin
 
-Echorin is a modular 2D sensing simulator that separates target ground truth
-from synthetic radar observations. It advances moving targets, generates noisy
-delayed echoes, applies matched filtering and range processing, and detects
-returns with fixed and CA-CFAR thresholds. A PySide6/PyQtGraph desktop interface
-shows the simulated world and the sensor's range products.
+Echorin is a real-time 2D Radar and Sonar simulation application that keeps
+ground truth separate from sensing. Moving point targets produce delayed,
+attenuated, noisy echoes; the application applies matched filtering, CA-CFAR,
+coherent Doppler processing, and Kalman multi-target tracking before displaying
+the results in a responsive PySide6/PyQtGraph GUI.
+
+![Echorin main window](screenshots/echorin-main.png)
+
+[Animated demo](screenshots/echorin-demo.gif) ·
+[Tracking benchmark](benchmarks/tracking_benchmark.svg)
+
+## Processing architecture
 
 ```text
-World truth -> propagation + noise -> matched filter -> range profile -> CFAR
-     |                                                               |
-     +---------------- optional GUI truth overlay -------------------+
+World truth -> Radar/Sonar propagation -> sampled echoes + AWGN
+                                              |
+                                              v
+matched filter -> range profile -> Doppler FFT -> CA-CFAR detections
+                                                        |
+                                                        v
+                                 association -> Kalman tracks -> GUI/export
 ```
+
+Only sensor synthesis, optional PPI overlays, and evaluation benchmarks access
+ground truth. CA-CFAR and tracking receive signal-derived measurements without
+simulation target IDs.
+
+## Features
+
+- Constant-velocity scenarios with deterministic seeds and editable targets
+- Radar and Sonar modes through one validated monostatic sensor abstraction
+- Rectangular and LFM chirp waveforms, physical two-way delay, attenuation, AWGN
+- FFT matched filtering, range profiles, fixed thresholds, and square-law CA-CFAR
+- Coherent pulse trains, Doppler spectra, and radial-velocity estimation
+- Mahalanobis-gated association and constant-velocity Kalman tracking
+- Tentative, confirmed, coasting, and deleted track lifecycle with stable IDs
+- PPI range rings, detections, tracks, trails, truth toggle, track table, range
+  profile, adaptive threshold, and selected-range Doppler plot
+- Run, pause, step, reset, Radar/Sonar, timestep, seed, noise, waveform, and
+  scenario-preset controls
+- Scenario JSON save/load plus replayable detection/track JSON and CSV export
+- Separate simulation, sensing, DSP, tracking, GUI, and total frame timings
+- 79 automated unit/integration/release tests using pytest
 
 ## Installation
 
-Echorin requires Python 3.12 or newer.
+Echorin requires Python 3.12 or newer. From a clean checkout:
 
 ```bash
 python -m venv .venv
@@ -23,31 +55,39 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
-## Run
+Run the desktop application:
 
 ```bash
-python main.py
-# or, after installation
 echorin
+# or
+python main.py
 ```
 
-Run the automated suite with:
+Run validation:
 
 ```bash
-python -m pytest
+python -m pytest -q
+python -m ruff check .
 ```
 
-## Current scope
+Generate the deterministic benchmark and optional release captures:
 
-The implemented release covers the specification through Milestone 5: project
-foundation, world kinematics, basic GUI, synthetic radar echoes, matched-filter
-range processing, fixed-threshold detection, and CA-CFAR. Tracking, Doppler,
-and acoustic sonar processing are intentionally reserved for later milestones.
+```bash
+python benchmarks/run_tracking_benchmark.py
+python -m pip install -e ".[release]"
+python examples/capture_demo.py
+```
+
+## Documentation
+
+- [Signal-processing and tracking theory](docs/theory.md)
+- [Architecture and package boundaries](docs/architecture.md)
+- [Tracking benchmark results](benchmarks/tracking_results.json)
 
 ## Simulation assumptions
 
-Echorin is an educational simulator, not a high-fidelity electromagnetic or
-acoustic propagation model. It uses configurable two-way delay, simplified
-amplitude decay, and additive white Gaussian noise. Ground truth is never passed
-to detection logic; it is used only to synthesize observations and optionally
-visualize/evaluate results.
+Echorin is an educational engineering simulator, not a high-fidelity propagation
+or operational sensing system. It uses point reflectors, integer-sample delays,
+a bounded simplified inverse-power amplitude law, AWGN, idealized angular
+channels, and a stop-and-hop coherent-pulse model. It does not model clutter,
+multipath, detailed antenna/acoustic beam patterns, ray tracing, or hardware.

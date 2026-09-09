@@ -9,10 +9,14 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -35,37 +39,71 @@ class SimulationControls(QGroupBox):
     tracks_toggled = Signal(bool)
     trails_toggled = Signal(bool)
     mode_changed = Signal(str)
+    dt_changed = Signal(float)
+    seed_changed = Signal(int)
+    noise_changed = Signal(float)
+    waveform_changed = Signal(str)
+    preset_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Simulation", parent)
-        layout = QHBoxLayout(self)
+        layout = QGridLayout(self)
         self.start_button = QPushButton("Run")
         self.pause_button = QPushButton("Pause")
         self.step_button = QPushButton("Step")
         self.reset_button = QPushButton("Reset")
-        for button in (
-            self.start_button,
-            self.pause_button,
-            self.step_button,
-            self.reset_button,
+        for column, button in enumerate(
+            (
+                self.start_button,
+                self.pause_button,
+                self.step_button,
+                self.reset_button,
+            )
         ):
-            layout.addWidget(button)
+            layout.addWidget(button, 0, column)
         self.ground_truth_checkbox = QCheckBox("Ground truth")
         self.ground_truth_checkbox.setChecked(True)
-        layout.addWidget(self.ground_truth_checkbox)
+        layout.addWidget(self.ground_truth_checkbox, 1, 0)
         self.detections_checkbox = QCheckBox("Detections")
         self.tracks_checkbox = QCheckBox("Tracks")
         self.trails_checkbox = QCheckBox("Trails")
-        for checkbox in (
-            self.detections_checkbox,
-            self.tracks_checkbox,
-            self.trails_checkbox,
+        for column, checkbox in enumerate(
+            (self.detections_checkbox, self.tracks_checkbox, self.trails_checkbox),
+            start=1,
         ):
             checkbox.setChecked(True)
-            layout.addWidget(checkbox)
+            layout.addWidget(checkbox, 1, column)
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(("Radar", "Sonar"))
-        layout.addWidget(self.mode_combo)
+        layout.addWidget(QLabel("Mode"), 2, 0)
+        layout.addWidget(self.mode_combo, 2, 1)
+        self.dt_spin = QDoubleSpinBox()
+        self.dt_spin.setRange(0.001, 10.0)
+        self.dt_spin.setDecimals(3)
+        self.dt_spin.setValue(0.05)
+        self.dt_spin.setSuffix(" s")
+        layout.addWidget(QLabel("dt"), 2, 2)
+        layout.addWidget(self.dt_spin, 2, 3)
+        self.seed_spin = QSpinBox()
+        self.seed_spin.setRange(0, 2_147_483_647)
+        self.seed_spin.setValue(7)
+        layout.addWidget(QLabel("Seed"), 3, 0)
+        layout.addWidget(self.seed_spin, 3, 1)
+        self.noise_spin = QDoubleSpinBox()
+        self.noise_spin.setRange(0.0, 10.0)
+        self.noise_spin.setDecimals(4)
+        self.noise_spin.setSingleStep(0.005)
+        self.noise_spin.setValue(0.02)
+        layout.addWidget(QLabel("Noise σ"), 3, 2)
+        layout.addWidget(self.noise_spin, 3, 3)
+        self.waveform_combo = QComboBox()
+        self.waveform_combo.addItems(("LFM", "Rectangular"))
+        layout.addWidget(QLabel("Waveform"), 4, 0)
+        layout.addWidget(self.waveform_combo, 4, 1)
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(("Crossing", "Single target"))
+        layout.addWidget(QLabel("Preset"), 4, 2)
+        layout.addWidget(self.preset_combo, 4, 3)
         self.start_button.clicked.connect(self.start_requested)
         self.pause_button.clicked.connect(self.pause_requested)
         self.step_button.clicked.connect(self.step_requested)
@@ -75,6 +113,11 @@ class SimulationControls(QGroupBox):
         self.tracks_checkbox.toggled.connect(self.tracks_toggled)
         self.trails_checkbox.toggled.connect(self.trails_toggled)
         self.mode_combo.currentTextChanged.connect(self.mode_changed)
+        self.dt_spin.valueChanged.connect(self.dt_changed)
+        self.seed_spin.valueChanged.connect(self.seed_changed)
+        self.noise_spin.valueChanged.connect(self.noise_changed)
+        self.waveform_combo.currentTextChanged.connect(self.waveform_changed)
+        self.preset_combo.currentTextChanged.connect(self.preset_changed)
 
 
 class TrackTable(QGroupBox):

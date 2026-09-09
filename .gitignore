@@ -206,6 +206,22 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Private project specifications and AI handoff documents
+requirements.md
+log.md
+nextup.md
+docs/
+
+# IDE/editor metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test and benchmark output
+test-results/
+benchmark-results/
+
 # PyPI configuration file
 .pypirc
 

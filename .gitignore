@@ -210,7 +210,10 @@ tempCodeRunnerFile.py
 requirements.md
 log.md
 nextup.md
-docs/
+docs/requirements.md
+docs/log.md
+docs/nextup.md
+docs/*.docx
 
 # IDE/editor metadata
 .idea/

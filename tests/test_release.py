@@ -185,3 +185,14 @@ def test_linux_ci_installs_qt_runtime_libraries_before_running_tests() -> None:
     assert "runner.os == 'Linux'" in workflow
     assert "libegl1" in workflow.lower()
     assert workflow.index("libegl1") < workflow.index("python -m pytest")
+
+
+def test_theory_uses_github_supported_latex_delimiters() -> None:
+    theory = (ROOT / "docs" / "theory.md").read_text(encoding="utf-8")
+
+    assert "\\(" not in theory
+    assert "\\)" not in theory
+    assert "\\[" not in theory
+    assert "\\]" not in theory
+    assert theory.count("$$") >= 10
+    assert "$\\tau=2R/c$" in theory

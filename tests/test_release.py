@@ -175,3 +175,13 @@ def test_private_documents_are_narrowly_ignored_but_public_docs_are_not() -> Non
     assert "docs/nextup.md" in ignore
     assert "docs/*.docx" in ignore
     assert "\ndocs/\n" not in ignore
+
+
+def test_linux_ci_installs_qt_runtime_libraries_before_running_tests() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "runner.os == 'Linux'" in workflow
+    assert "libegl1" in workflow.lower()
+    assert workflow.index("libegl1") < workflow.index("python -m pytest")

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from echorin.config import SensorConfig, SimulationConfig
+from echorin.config import SensorConfig, SensorMode, SimulationConfig
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
 from echorin.dsp.doppler import (
     DopplerProduct,
@@ -28,7 +28,8 @@ from echorin.gui.signal_plots import SignalPlots
 from echorin.models.detection import Detection
 from echorin.models.track import Track
 from echorin.sensors.base import SensorFrame
-from echorin.sensors.radar import RadarSensor
+from echorin.sensors.echo import SyntheticMonostaticSensor
+from echorin.sensors.factory import create_sensor
 from echorin.simulation.scenarios import crossing_targets
 from echorin.simulation.target import Target
 from echorin.simulation.world import World
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
         self.world = world or crossing_targets()
         self.simulation_config = simulation_config or SimulationConfig()
         self.sensor_config = sensor_config or SensorConfig()
-        self.sensor = RadarSensor(
+        self.sensor: SyntheticMonostaticSensor = create_sensor(
             self.sensor_config,
             self.world.sensor_pose,
             random_seed=self.simulation_config.random_seed,
@@ -115,6 +116,7 @@ class MainWindow(QMainWindow):
         self.controls.detections_toggled.connect(self.ppi_view.set_detections_visible)
         self.controls.tracks_toggled.connect(self.ppi_view.set_tracks_visible)
         self.controls.trails_toggled.connect(self.ppi_view.set_trails_visible)
+        self.controls.mode_changed.connect(self._set_sensor_mode)
         self.target_editor.target_added.connect(self._add_target)
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
@@ -247,6 +249,50 @@ class MainWindow(QMainWindow):
         self.world.remove_target(target_id)
         self.world.checkpoint_reset_state()
         self._refresh_world_views()
+
+    def _set_sensor_mode(self, mode_text: str) -> None:
+        """Rebuild mode-specific sensor/DSP state while preserving the world."""
+        mode = SensorMode(mode_text.lower())
+        if mode is self.sensor_config.mode:
+            return
+        self.timer.stop()
+        self.sensor_config = (
+            SensorConfig.radar() if mode is SensorMode.RADAR else SensorConfig.sonar()
+        )
+        self.sensor = create_sensor(
+            self.sensor_config,
+            self.world.sensor_pose,
+            random_seed=self.simulation_config.random_seed,
+        )
+        self.signal_processor = SignalProcessor(self.sensor_config)
+        self.cfar_detector = CaCfarDetector(
+            CfarConfig(
+                training_cells=16,
+                guard_cells=4,
+                false_alarm_probability=1e-3,
+                minimum_separation_bins=max(1, self.sensor_config.pulse_samples // 8),
+            )
+        )
+        self.tracker = MultiTargetTracker(
+            TrackerConfig(
+                measurement_std_m=max(
+                    1.0,
+                    self.sensor_config.propagation_speed_mps
+                    / (2.0 * self.sensor_config.sample_rate_hz),
+                )
+            )
+        )
+        self.doppler_pulse_count = 32 if mode is SensorMode.RADAR else 16
+        self.last_sensor_frame = None
+        self.last_range_profile = None
+        self.last_cfar_result = None
+        self.last_doppler_product = None
+        self.last_detections = ()
+        self.last_tracks = ()
+        self.ppi_view.set_max_range(self.sensor_config.max_range_m)
+        self.ppi_view.set_detections(())
+        self.ppi_view.set_tracks(())
+        self.track_table.set_tracks(())
 
     def _refresh_world_views(self, update_editor: bool = True) -> None:
         self.ppi_view.set_targets(self.world.targets)

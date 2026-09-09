@@ -7,7 +7,10 @@ from echorin.sensors.base import (
     Sensor,
     SensorFrame,
 )
+from echorin.sensors.echo import SyntheticMonostaticSensor
+from echorin.sensors.factory import create_sensor
 from echorin.sensors.radar import RadarSensor
+from echorin.sensors.sonar import SonarSensor
 
 __all__ = [
     "DirectionalPulseTrainFrame",
@@ -16,4 +19,7 @@ __all__ = [
     "RadarSensor",
     "Sensor",
     "SensorFrame",
+    "SonarSensor",
+    "SyntheticMonostaticSensor",
+    "create_sensor",
 ]

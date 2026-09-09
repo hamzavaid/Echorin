@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import ceil
+from typing import Any
 
 SPEED_OF_LIGHT_MPS = 299_792_458.0
+NOMINAL_WATER_SOUND_SPEED_MPS = 1_500.0
 
 
 class SensorMode(StrEnum):
@@ -51,6 +53,29 @@ class SensorConfig:
     propagation_speed_mps: float = SPEED_OF_LIGHT_MPS
     noise_model: NoiseConfig = field(default_factory=NoiseConfig)
 
+    @classmethod
+    def radar(cls, **overrides: Any) -> SensorConfig:
+        """Create a radar-mode configuration with RF simulation defaults."""
+        values: dict[str, Any] = {"mode": SensorMode.RADAR}
+        values.update(overrides)
+        return cls(**values)
+
+    @classmethod
+    def sonar(cls, **overrides: Any) -> SensorConfig:
+        """Create a sonar-mode configuration with water-acoustic defaults."""
+        values: dict[str, Any] = {
+            "mode": SensorMode.SONAR,
+            "sample_rate_hz": 96_000.0,
+            "carrier_frequency_hz": 20_000.0,
+            "bandwidth_hz": 8_000.0,
+            "pulse_width_s": 5e-3,
+            "prf_hz": 3.0,
+            "max_range_m": 200.0,
+            "propagation_speed_mps": NOMINAL_WATER_SOUND_SPEED_MPS,
+        }
+        values.update(overrides)
+        return cls(**values)
+
     def __post_init__(self) -> None:
         positive_fields = (
             "sample_rate_hz",
@@ -64,6 +89,10 @@ class SensorConfig:
         for name in positive_fields:
             if getattr(self, name) <= 0.0:
                 raise ValueError(f"{name} must be positive")
+        if self.mode is SensorMode.SONAR and self.propagation_speed_mps > 10_000.0:
+            raise ValueError(
+                "sonar propagation speed must be explicitly configured for acoustics"
+            )
         if self.sample_rate_hz < 2.0 * self.bandwidth_hz:
             raise ValueError("sample_rate_hz must be at least twice bandwidth_hz")
         highest_waveform_frequency = self.carrier_frequency_hz + self.bandwidth_hz / 2.0

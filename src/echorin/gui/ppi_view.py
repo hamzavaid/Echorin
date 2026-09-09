@@ -38,14 +38,9 @@ class PpiView(QWidget):
         self.plot.setYRange(-max_range_m, max_range_m, padding=0.02)
         layout.addWidget(self.plot)
 
-        angles = np.linspace(0.0, 2.0 * np.pi, 361)
-        ring_pen = pg.mkPen((65, 120, 145, 150), width=1)
         self.range_rings: list[pg.PlotDataItem] = []
-        for radius in np.linspace(max_range_m / ring_count, max_range_m, ring_count):
-            ring = self.plot.plot(
-                radius * np.cos(angles), radius * np.sin(angles), pen=ring_pen
-            )
-            self.range_rings.append(ring)
+        self._ring_count = ring_count
+        self._draw_range_rings()
         self.sensor_item = pg.ScatterPlotItem(
             x=[0.0], y=[0.0], symbol="+", size=16, pen=pg.mkPen("c", width=2)
         )
@@ -83,6 +78,31 @@ class PpiView(QWidget):
     def set_ground_truth_visible(self, visible: bool) -> None:
         """Show or hide the ground-truth-only target layer."""
         self.target_item.setVisible(visible)
+
+    def set_max_range(self, max_range_m: float) -> None:
+        """Rescale the PPI and rebuild physical range rings."""
+        if max_range_m <= 0.0:
+            raise ValueError("max_range_m must be positive")
+        self.max_range_m = max_range_m
+        self.plot.setXRange(-max_range_m, max_range_m, padding=0.02)
+        self.plot.setYRange(-max_range_m, max_range_m, padding=0.02)
+        for ring in self.range_rings:
+            self.plot.removeItem(ring)
+        self.range_rings.clear()
+        self._draw_range_rings()
+
+    def _draw_range_rings(self) -> None:
+        angles = np.linspace(0.0, 2.0 * np.pi, 361)
+        ring_pen = pg.mkPen((65, 120, 145, 150), width=1)
+        for radius in np.linspace(
+            self.max_range_m / self._ring_count,
+            self.max_range_m,
+            self._ring_count,
+        ):
+            ring = self.plot.plot(
+                radius * np.cos(angles), radius * np.sin(angles), pen=ring_pen
+            )
+            self.range_rings.append(ring)
 
     def set_detections(self, detections: Iterable[Detection]) -> None:
         """Draw finite polar detections converted to Cartesian coordinates."""

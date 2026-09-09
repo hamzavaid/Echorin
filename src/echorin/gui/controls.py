@@ -8,6 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -33,6 +34,7 @@ class SimulationControls(QGroupBox):
     detections_toggled = Signal(bool)
     tracks_toggled = Signal(bool)
     trails_toggled = Signal(bool)
+    mode_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Simulation", parent)
@@ -61,6 +63,9 @@ class SimulationControls(QGroupBox):
         ):
             checkbox.setChecked(True)
             layout.addWidget(checkbox)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(("Radar", "Sonar"))
+        layout.addWidget(self.mode_combo)
         self.start_button.clicked.connect(self.start_requested)
         self.pause_button.clicked.connect(self.pause_requested)
         self.step_button.clicked.connect(self.step_requested)
@@ -69,6 +74,7 @@ class SimulationControls(QGroupBox):
         self.detections_checkbox.toggled.connect(self.detections_toggled)
         self.tracks_checkbox.toggled.connect(self.tracks_toggled)
         self.trails_checkbox.toggled.connect(self.trails_toggled)
+        self.mode_combo.currentTextChanged.connect(self.mode_changed)
 
 
 class TrackTable(QGroupBox):

@@ -75,6 +75,18 @@ class SignalProcessor:
         response = self.matched_filter(received_signal, transmitted_signal)
         return RangeProfile(self.range_axis(response.size), response)
 
+    def pulse_matrix_range_responses(
+        self, received_pulses: ArrayLike, transmitted_signal: ArrayLike
+    ) -> NDArray[np.complex128]:
+        """Matched-filter every pulse while retaining coherent phase."""
+        pulses = np.asarray(received_pulses)
+        if pulses.ndim != 2:
+            raise ValueError("received_pulses must have shape (pulses, samples)")
+        return np.asarray(
+            [self.matched_filter(pulse, transmitted_signal) for pulse in pulses],
+            dtype=np.complex128,
+        )
+
 
 class FixedThresholdDetector:
     """Reference local-maximum detector with a constant amplitude threshold."""

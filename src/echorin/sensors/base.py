@@ -37,6 +37,22 @@ class DirectionalSensorFrame(SensorFrame):
     bearing_rad: float
 
 
+@dataclass(frozen=True, slots=True)
+class PulseTrainFrame:
+    """Coherent slow-time acquisition without truth metadata."""
+
+    timestamp_s: float
+    transmitted_signal: NDArray[np.float64]
+    received_pulses: NDArray[np.complex128]
+
+
+@dataclass(frozen=True, slots=True)
+class DirectionalPulseTrainFrame(PulseTrainFrame):
+    """Coherent pulse train from one measured angular channel."""
+
+    bearing_rad: float
+
+
 class Sensor(ABC):
     """Abstract sensor-to-signal interface."""
 

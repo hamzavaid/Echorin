@@ -16,6 +16,11 @@ from PySide6.QtWidgets import (
 
 from echorin.config import SensorConfig, SimulationConfig
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
+from echorin.dsp.doppler import (
+    DopplerProduct,
+    doppler_spectrum,
+    enrich_detections_with_velocity,
+)
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.ppi_view import PpiView
@@ -71,6 +76,8 @@ class MainWindow(QMainWindow):
         )
         self.last_detections: tuple[Detection, ...] = ()
         self.last_tracks: tuple[Track, ...] = ()
+        self.doppler_pulse_count = 32
+        self.last_doppler_product: DopplerProduct | None = None
         self.setWindowTitle("ECHORIN - Radar Signal Processing Simulator")
         self.resize(1_200, 800)
 
@@ -116,23 +123,36 @@ class MainWindow(QMainWindow):
     def step_once(self) -> None:
         """Advance one world frame and run the observation/DSP/detection chain."""
         self.world.advance(self.simulation_config.dt_s)
-        directional_frames = self.sensor.acquire_directional(
-            self.world.targets, timestamp_s=self.world.time_s
+        directional_pulse_trains = self.sensor.acquire_directional_pulse_trains(
+            self.world.targets,
+            timestamp_s=self.world.time_s,
+            pulse_count=self.doppler_pulse_count,
         )
-        if directional_frames:
-            combined_received = sum(
-                (frame.received_signal for frame in directional_frames),
-                start=np.zeros(self.sensor_config.acquisition_samples),
+        if directional_pulse_trains:
+            combined_pulses = sum(
+                (frame.received_pulses for frame in directional_pulse_trains),
+                start=np.zeros(
+                    (
+                        self.doppler_pulse_count,
+                        self.sensor_config.acquisition_samples,
+                    ),
+                    dtype=np.complex128,
+                ),
             )
-            self.last_sensor_frame = SensorFrame(
-                self.world.time_s,
-                directional_frames[0].transmitted_signal,
-                combined_received,
-            )
+            transmitted = directional_pulse_trains[0].transmitted_signal
         else:
-            self.last_sensor_frame = self.sensor.acquire(
-                (), timestamp_s=self.world.time_s
+            pulse_train = self.sensor.acquire_pulse_train(
+                (),
+                timestamp_s=self.world.time_s,
+                pulse_count=self.doppler_pulse_count,
             )
+            combined_pulses = pulse_train.received_pulses
+            transmitted = pulse_train.transmitted_signal
+        self.last_sensor_frame = SensorFrame(
+            self.world.time_s,
+            transmitted,
+            combined_pulses[0],
+        )
         self.last_range_profile = self.signal_processor.range_profile(
             self.last_sensor_frame.received_signal,
             self.last_sensor_frame.transmitted_signal,
@@ -145,17 +165,32 @@ class MainWindow(QMainWindow):
             bearing_rad=float("nan"),
         )
         detections: list[Detection] = []
-        for directional_frame in directional_frames:
-            directional_profile = self.signal_processor.range_profile(
-                directional_frame.received_signal,
+        for directional_frame in directional_pulse_trains:
+            range_responses = self.signal_processor.pulse_matrix_range_responses(
+                directional_frame.received_pulses,
                 directional_frame.transmitted_signal,
+            )
+            directional_profile = RangeProfile(
+                self.signal_processor.range_axis(range_responses.shape[1]),
+                range_responses[0],
             )
             directional_result = self.cfar_detector.detect(
                 directional_profile,
                 timestamp_s=self.world.time_s,
                 bearing_rad=directional_frame.bearing_rad,
             )
-            detections.extend(directional_result.detections)
+            directional_doppler = doppler_spectrum(range_responses, self.sensor_config)
+            detections.extend(
+                enrich_detections_with_velocity(
+                    directional_result.detections, directional_doppler
+                )
+            )
+        combined_range_responses = self.signal_processor.pulse_matrix_range_responses(
+            combined_pulses, transmitted
+        )
+        self.last_doppler_product = doppler_spectrum(
+            combined_range_responses, self.sensor_config
+        )
         self.last_detections = tuple(detections)
         self.last_tracks = self.tracker.update(
             self.last_detections, timestamp_s=self.world.time_s
@@ -164,6 +199,17 @@ class MainWindow(QMainWindow):
             self.last_range_profile,
             self.last_cfar_result.threshold,
             [detection.source_bin for detection in self.last_cfar_result.detections],
+        )
+        selected_range_bin = (
+            max(
+                self.last_cfar_result.detections,
+                key=lambda detection: detection.amplitude,
+            ).source_bin
+            if self.last_cfar_result.detections
+            else int(np.argmax(self.last_range_profile.magnitude))
+        )
+        self.signal_plots.set_doppler_product(
+            self.last_doppler_product, selected_range_bin
         )
         self.ppi_view.set_detections(self.last_detections)
         self.ppi_view.set_tracks(self.last_tracks)
@@ -178,6 +224,7 @@ class MainWindow(QMainWindow):
         self.last_sensor_frame = None
         self.last_range_profile = None
         self.last_cfar_result = None
+        self.last_doppler_product = None
         self.tracker.reset()
         self.last_detections = ()
         self.last_tracks = ()

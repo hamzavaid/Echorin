@@ -8,6 +8,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from echorin.dsp.doppler import DopplerProduct
 from echorin.dsp.range_processing import RangeProfile
 
 
@@ -32,6 +33,11 @@ class SignalPlots(QWidget):
         )
         self.range_plot.addItem(self.detection_item)
         layout.addWidget(self.range_plot)
+        self.doppler_plot = pg.PlotWidget(background="#101418")
+        self.doppler_plot.setLabel("bottom", "Radial velocity", units="m/s")
+        self.doppler_plot.setLabel("left", "Magnitude")
+        self.doppler_curve = self.doppler_plot.plot(pen=pg.mkPen("g", width=1.5))
+        layout.addWidget(self.doppler_plot)
 
     def set_range_product(
         self,
@@ -51,4 +57,15 @@ class SignalPlots(QWidget):
         self.detection_item.setData(
             x=profile.ranges_m[bins] if bins.size else [],
             y=magnitude[bins] if bins.size else [],
+        )
+
+    def set_doppler_product(
+        self, product: DopplerProduct, selected_range_bin: int
+    ) -> None:
+        """Display the velocity spectrum at one selected range bin."""
+        if not 0 <= selected_range_bin < product.spectrum.shape[1]:
+            raise ValueError("selected_range_bin lies outside Doppler product")
+        self.doppler_curve.setData(
+            product.radial_velocity_mps,
+            product.magnitude[:, selected_range_bin],
         )

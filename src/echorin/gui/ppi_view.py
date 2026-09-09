@@ -8,6 +8,8 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from echorin.models.detection import Detection
+from echorin.models.track import Track
 from echorin.simulation.target import Target
 
 
@@ -55,6 +57,19 @@ class PpiView(QWidget):
         )
         self.plot.addItem(self.sensor_item)
         self.plot.addItem(self.target_item)
+        self.detection_item = pg.ScatterPlotItem(
+            symbol="x", size=11, pen=pg.mkPen("r", width=2)
+        )
+        self.track_item = pg.ScatterPlotItem(
+            symbol="o",
+            size=12,
+            pen=pg.mkPen("g", width=2),
+            brush=pg.mkBrush(0, 220, 100, 90),
+        )
+        self.track_history_items: dict[int, pg.PlotDataItem] = {}
+        self.plot.addItem(self.detection_item)
+        self.plot.addItem(self.track_item)
+        self._trails_visible = True
 
     def set_targets(self, targets: Iterable[Target]) -> None:
         """Redraw the optional ground-truth target overlay."""
@@ -68,3 +83,48 @@ class PpiView(QWidget):
     def set_ground_truth_visible(self, visible: bool) -> None:
         """Show or hide the ground-truth-only target layer."""
         self.target_item.setVisible(visible)
+
+    def set_detections(self, detections: Iterable[Detection]) -> None:
+        """Draw finite polar detections converted to Cartesian coordinates."""
+        finite = [
+            detection
+            for detection in detections
+            if np.isfinite(detection.range_m) and np.isfinite(detection.bearing_rad)
+        ]
+        self.detection_item.setData(
+            x=[d.range_m * np.cos(d.bearing_rad) for d in finite],
+            y=[d.range_m * np.sin(d.bearing_rad) for d in finite],
+        )
+
+    def set_tracks(self, tracks: Iterable[Track]) -> None:
+        """Draw active track states and bounded histories."""
+        active = list(tracks)
+        self.track_item.setData(
+            x=[track.x_m for track in active],
+            y=[track.y_m for track in active],
+            data=[track.track_id for track in active],
+        )
+        active_ids = {track.track_id for track in active}
+        for stale_id in set(self.track_history_items) - active_ids:
+            self.plot.removeItem(self.track_history_items.pop(stale_id))
+        for track in active:
+            history = np.asarray(track.history, dtype=np.float64)
+            item = self.track_history_items.get(track.track_id)
+            if item is None:
+                item = self.plot.plot(
+                    pen=pg.mkPen(pg.intColor(track.track_id), width=1.5)
+                )
+                self.track_history_items[track.track_id] = item
+            item.setData(history[:, 0], history[:, 1])
+            item.setVisible(self._trails_visible)
+
+    def set_detections_visible(self, visible: bool) -> None:
+        self.detection_item.setVisible(visible)
+
+    def set_tracks_visible(self, visible: bool) -> None:
+        self.track_item.setVisible(visible)
+
+    def set_trails_visible(self, visible: bool) -> None:
+        self._trails_visible = visible
+        for item in self.track_history_items.values():
+            item.setVisible(visible)

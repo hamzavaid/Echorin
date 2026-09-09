@@ -30,6 +30,13 @@ class SensorFrame:
     received_signal: NDArray[np.float64]
 
 
+@dataclass(frozen=True, slots=True)
+class DirectionalSensorFrame(SensorFrame):
+    """Raw signal from one measured angular channel, without truth metadata."""
+
+    bearing_rad: float
+
+
 class Sensor(ABC):
     """Abstract sensor-to-signal interface."""
 

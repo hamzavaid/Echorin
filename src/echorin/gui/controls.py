@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from echorin.models.track import Track
 from echorin.simulation.target import Target
 
 
@@ -29,6 +30,9 @@ class SimulationControls(QGroupBox):
     step_requested = Signal()
     reset_requested = Signal()
     ground_truth_toggled = Signal(bool)
+    detections_toggled = Signal(bool)
+    tracks_toggled = Signal(bool)
+    trails_toggled = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Simulation", parent)
@@ -47,11 +51,57 @@ class SimulationControls(QGroupBox):
         self.ground_truth_checkbox = QCheckBox("Ground truth")
         self.ground_truth_checkbox.setChecked(True)
         layout.addWidget(self.ground_truth_checkbox)
+        self.detections_checkbox = QCheckBox("Detections")
+        self.tracks_checkbox = QCheckBox("Tracks")
+        self.trails_checkbox = QCheckBox("Trails")
+        for checkbox in (
+            self.detections_checkbox,
+            self.tracks_checkbox,
+            self.trails_checkbox,
+        ):
+            checkbox.setChecked(True)
+            layout.addWidget(checkbox)
         self.start_button.clicked.connect(self.start_requested)
         self.pause_button.clicked.connect(self.pause_requested)
         self.step_button.clicked.connect(self.step_requested)
         self.reset_button.clicked.connect(self.reset_requested)
         self.ground_truth_checkbox.toggled.connect(self.ground_truth_toggled)
+        self.detections_checkbox.toggled.connect(self.detections_toggled)
+        self.tracks_checkbox.toggled.connect(self.tracks_toggled)
+        self.trails_checkbox.toggled.connect(self.trails_toggled)
+
+
+class TrackTable(QGroupBox):
+    """Read-only summary of sensor-derived active tracks."""
+
+    HEADERS = ("ID", "Status", "X (m)", "Y (m)", "Vx (m/s)", "Vy (m/s)")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Active Tracks", parent)
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget(0, len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.table)
+
+    def set_tracks(self, tracks: Iterable[Track]) -> None:
+        """Replace table rows with current track estimates."""
+        track_list = list(tracks)
+        self.table.setRowCount(len(track_list))
+        for row, track in enumerate(track_list):
+            values = (
+                track.track_id,
+                track.status.value,
+                f"{track.x_m:.1f}",
+                f"{track.y_m:.1f}",
+                f"{track.vx_mps:.1f}",
+                f"{track.vy_mps:.1f}",
+            )
+            for column, value in enumerate(values):
+                self.table.setItem(row, column, QTableWidgetItem(str(value)))
 
 
 class TargetEditor(QGroupBox):

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from time import perf_counter
+from time import perf_counter, sleep
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import QApplication, QDockWidget
 
 from echorin.config import SensorMode
@@ -69,4 +69,63 @@ def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
     window.reset()
     assert window.range_doppler_view.product is None
     assert window.range_doppler_view.image_item.image is None
+    window.close()
+
+
+def test_live_processing_keeps_qt_event_loop_responsive(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = QSettings(str(tmp_path / "worker.ini"), QSettings.Format.IniFormat)
+    window = MainWindow(
+        world=single_stationary_target(range_m=100.0), settings=settings
+    )
+    original = window.sensor.acquire_directional_pulse_trains
+
+    def delayed_acquisition(*args, **kwargs):
+        sleep(0.15)
+        return original(*args, **kwargs)
+
+    window.sensor.acquire_directional_pulse_trains = delayed_acquisition
+    heartbeat: list[bool] = []
+    QTimer.singleShot(30, lambda: heartbeat.append(window.last_frame_result is None))
+    window.timer.setInterval(1)
+    window.timer.start()
+    deadline = perf_counter() + 2.0
+    while not heartbeat and perf_counter() < deadline:
+        app.processEvents()
+        sleep(0.005)
+    assert heartbeat == [True]
+    while window.last_frame_result is None and perf_counter() < deadline:
+        app.processEvents()
+        sleep(0.005)
+    assert window.last_frame_result is not None
+    window.timer.stop()
+    window.close()
+
+
+def test_reset_discards_an_inflight_frame(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = QSettings(str(tmp_path / "reset.ini"), QSettings.Format.IniFormat)
+    window = MainWindow(
+        world=single_stationary_target(range_m=100.0), settings=settings
+    )
+    original = window.sensor.acquire_directional_pulse_trains
+
+    def delayed_acquisition(*args, **kwargs):
+        sleep(0.12)
+        return original(*args, **kwargs)
+
+    window.sensor.acquire_directional_pulse_trains = delayed_acquisition
+    window.timer.setInterval(1)
+    window.timer.start()
+    deadline = perf_counter() + 2.0
+    while not window._inflight and perf_counter() < deadline:
+        app.processEvents()
+        sleep(0.005)
+    assert window._inflight
+    window.reset()
+    assert window.world.time_s == 0.0
+    sleep(0.3)
+    app.processEvents()
+    assert window.last_frame_result is None
+    assert window.range_doppler_view.product is None
     window.close()

@@ -74,7 +74,9 @@ never reported as a sensor measurement.
 
 The default live timer uses the configured simulation step for Radar and at
 least 400 ms for Sonar to accommodate its larger coherent acquisition. One
-simulation step still advances by the configured `dt` in either mode.
+simulation step still advances by the configured `dt` in either mode. Live
+sensor/DSP/tracking work runs one frame at a time in a worker so plot controls
+and dock interaction remain responsive; manual **Step** uses the same pipeline.
 
 ## Installation
 

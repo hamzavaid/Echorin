@@ -114,7 +114,10 @@ def test_main_window_steps_runs_pauses_edits_and_resets(app: QApplication) -> No
 
 def test_numerical_layers_do_not_import_gui_dependencies() -> None:
     source_root = Path(__file__).parents[1] / "src" / "echorin"
-    core_directories = ("simulation", "signals", "dsp", "tracking", "sensors", "models")
+    core_directories = (
+        "simulation", "signals", "dsp", "tracking", "sensors", "models",
+        "application",
+    )
 
     for directory in core_directories:
         for path in (source_root / directory).glob("*.py"):

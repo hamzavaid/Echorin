@@ -17,7 +17,7 @@ DSP (matched filter, range, Doppler, CA-CFAR)
 models Detection -> tracking (association, Kalman, lifecycle)
         |
         v
-GUI / recording / benchmarks
+application/frame_pipeline -> GUI / recording / benchmarks
 ```
 
 ## Package boundaries
@@ -32,6 +32,9 @@ GUI / recording / benchmarks
 - `models/` contains data-only detections, frame results, geometry, and tracks.
 - `tracking/` converts polar detections to Cartesian measurements, performs
   Mahalanobis-gated association, and maintains Kalman track lifecycle.
+- `application/frame_pipeline.py` runs the existing sensor, DSP, detection, and
+  tracking chain synchronously with no Qt imports. Both manual and live updates
+  call this same function.
 - `gui/` is the only package that imports PySide6 or PyQtGraph. It orchestrates
   public layer APIs and renders PPI, range, threshold, Doppler, and track views.
   `main_window.py` coordinates the application frame. `visualization_data.py`
@@ -47,7 +50,11 @@ Each timer event advances simulation time, acquires coherent angular pulse
 trains, applies matched filtering, forms range/Doppler products, runs CA-CFAR,
 associates detections, updates tracks, publishes a `FrameResult`, and refreshes
 the GUI. Timings for simulation, sensing, DSP, tracking, and GUI refresh are
-measured separately.
+measured separately. Manual Step invokes the synchronous application pipeline.
+Live Run snapshots the advanced world state, computes one frame at a time on a
+worker thread, and publishes completed results back on the Qt event thread.
+Reset or configuration changes invalidate in-flight results. The worker never
+updates widgets or reads mutable world targets directly.
 
 ## v1.1 engineering workspace
 

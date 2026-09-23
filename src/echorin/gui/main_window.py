@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sys
+from concurrent.futures import Future, ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import replace
 from time import perf_counter
 
 import numpy as np
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -17,13 +19,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from echorin.application.frame_pipeline import FrameComputation, process_frame
 from echorin.config import NoiseConfig, SensorConfig, SensorMode, SimulationConfig
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
-from echorin.dsp.doppler import (
-    DopplerProduct,
-    doppler_spectrum,
-    enrich_detections_with_velocity,
-)
+from echorin.dsp.doppler import DopplerProduct
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.heatmaps import RangeDopplerView
@@ -46,6 +45,8 @@ from echorin.tracking.tracker import MultiTargetTracker, TrackerConfig
 
 class MainWindow(QMainWindow):
     """Coordinate UI commands and world updates without numerical coupling."""
+
+    frame_ready = Signal(int, object, float, float)
 
     def __init__(
         self,
@@ -90,8 +91,13 @@ class MainWindow(QMainWindow):
         self.last_doppler_product: DopplerProduct | None = None
         self.last_timing_metrics_s: dict[str, float] = {}
         self.last_frame_result: FrameResult | None = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="echorin")
+        self._frame_generation = 0
+        self._inflight = False
         self.settings = settings or QSettings("Echorin", "Echorin")
-        self.setWindowTitle("ECHORIN - Radar Engineering Workspace")
+        self.setWindowTitle(
+            f"ECHORIN - {self.sensor_config.mode.value.title()} Engineering Workspace"
+        )
         self.resize(1_400, 900)
         self.setDockOptions(
             QMainWindow.DockOption.AllowNestedDocks
@@ -186,7 +192,10 @@ class MainWindow(QMainWindow):
 
         self.timer = QTimer(self)
         self._update_timer_interval()
-        self.timer.timeout.connect(self.step_once)
+        self.timer.timeout.connect(self._request_live_step)
+        self.frame_ready.connect(
+            self._finish_async_step, Qt.ConnectionType.QueuedConnection
+        )
         self.controls.start_requested.connect(self.timer.start)
         self.controls.pause_requested.connect(self.timer.stop)
         self.controls.step_requested.connect(self.step_once)
@@ -237,6 +246,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist geometry and panel arrangement between sessions."""
         self.timer.stop()
+        self._invalidate_pending()
+        self._executor.shutdown(wait=False, cancel_futures=True)
         if self.ppi_focus:
             self.set_ppi_focus(False)
         self.settings.setValue("workspace/geometry", self.saveGeometry())
@@ -285,89 +296,75 @@ class MainWindow(QMainWindow):
         self.settings.setValue("workspace/theme", theme)
 
     def step_once(self) -> None:
-        """Advance one world frame and run the observation/DSP/detection chain."""
-        frame_started = perf_counter()
-        phase_started = perf_counter()
+        """Run one deterministic manual frame and present its products."""
+        if self._inflight:
+            return
+        targets, timestamp_s, simulation_s, started = self._prepare_step()
+        result = process_frame(
+            targets, timestamp_s, self.sensor, self.signal_processor,
+            self.cfar_detector, self.tracker, self.doppler_pulse_count,
+        )
+        self._present_frame(result, simulation_s, started)
+
+    def _prepare_step(self) -> tuple[tuple[Target, ...], float, float, float]:
+        """Advance world time on the UI thread and snapshot target states."""
+        started = perf_counter()
         self.world.advance(self.simulation_config.dt_s)
-        simulation_s = perf_counter() - phase_started
-        phase_started = perf_counter()
-        directional_pulse_trains = self.sensor.acquire_directional_pulse_trains(
-            self.world.targets,
-            timestamp_s=self.world.time_s,
-            pulse_count=self.doppler_pulse_count,
+        targets = tuple(deepcopy(target) for target in self.world.targets)
+        return targets, self.world.time_s, perf_counter() - started, started
+
+    def _request_live_step(self) -> None:
+        """Queue at most one expensive frame while leaving Qt free to repaint."""
+        if self._inflight:
+            return
+        targets, timestamp_s, simulation_s, started = self._prepare_step()
+        self._inflight = True
+        generation = self._frame_generation
+        future = self._executor.submit(
+            process_frame, targets, timestamp_s, self.sensor,
+            self.signal_processor, self.cfar_detector, self.tracker,
+            self.doppler_pulse_count,
         )
-        if directional_pulse_trains:
-            combined_pulses = sum(
-                (frame.received_pulses for frame in directional_pulse_trains),
-                start=np.zeros(
-                    (
-                        self.doppler_pulse_count,
-                        self.sensor_config.acquisition_samples,
-                    ),
-                    dtype=np.complex128,
-                ),
+        future.add_done_callback(
+            lambda finished: self.frame_ready.emit(
+                generation, finished, simulation_s, started
             )
-            transmitted = directional_pulse_trains[0].transmitted_signal
-        else:
-            pulse_train = self.sensor.acquire_pulse_train(
-                (),
-                timestamp_s=self.world.time_s,
-                pulse_count=self.doppler_pulse_count,
-            )
-            combined_pulses = pulse_train.received_pulses
-            transmitted = pulse_train.transmitted_signal
-        sensing_s = perf_counter() - phase_started
-        phase_started = perf_counter()
-        self.last_sensor_frame = SensorFrame(
-            self.world.time_s,
-            transmitted,
-            combined_pulses[0],
         )
-        self.last_range_profile = self.signal_processor.range_profile(
-            self.last_sensor_frame.received_signal,
-            self.last_sensor_frame.transmitted_signal,
-        )
-        # A single omnidirectional channel cannot infer bearing; NaN records that
-        # limitation rather than leaking the target's true angle.
-        self.last_cfar_result = self.cfar_detector.detect(
-            self.last_range_profile,
-            timestamp_s=self.world.time_s,
-            bearing_rad=float("nan"),
-        )
-        detections: list[Detection] = []
-        for directional_frame in directional_pulse_trains:
-            range_responses = self.signal_processor.pulse_matrix_range_responses(
-                directional_frame.received_pulses,
-                directional_frame.transmitted_signal,
-            )
-            directional_profile = RangeProfile(
-                self.signal_processor.range_axis(range_responses.shape[1]),
-                range_responses[0],
-            )
-            directional_result = self.cfar_detector.detect(
-                directional_profile,
-                timestamp_s=self.world.time_s,
-                bearing_rad=directional_frame.bearing_rad,
-            )
-            directional_doppler = doppler_spectrum(range_responses, self.sensor_config)
-            detections.extend(
-                enrich_detections_with_velocity(
-                    directional_result.detections, directional_doppler
-                )
-            )
-        combined_range_responses = self.signal_processor.pulse_matrix_range_responses(
-            combined_pulses, transmitted
-        )
-        self.last_doppler_product = doppler_spectrum(
-            combined_range_responses, self.sensor_config
-        )
-        self.last_detections = tuple(detections)
-        dsp_s = perf_counter() - phase_started
-        phase_started = perf_counter()
-        self.last_tracks = self.tracker.update(
-            self.last_detections, timestamp_s=self.world.time_s
-        )
-        tracking_s = perf_counter() - phase_started
+
+    def _finish_async_step(
+        self, generation: int, future: Future[FrameComputation],
+        simulation_s: float, started: float,
+    ) -> None:
+        """Publish worker results only if the scenario configuration still matches."""
+        if generation != self._frame_generation:
+            return
+        try:
+            result = future.result()
+            self._present_frame(result, simulation_s, started)
+        except Exception as error:
+            self.timer.stop()
+            self.statusBar().showMessage(f"Processing error: {error}")
+        finally:
+            self._inflight = False
+
+    def _invalidate_pending(self) -> None:
+        """Discard in-flight output after a reset or configuration change."""
+        self._frame_generation += 1
+        self._inflight = False
+
+    def _present_frame(
+        self, result: FrameComputation, simulation_s: float, frame_started: float
+    ) -> None:
+        """Update Qt widgets from one completed numerical frame on the UI thread."""
+        self.last_sensor_frame = result.sensor_frame
+        self.last_range_profile = result.range_profile
+        self.last_cfar_result = result.cfar_result
+        self.last_doppler_product = result.doppler_product
+        self.last_detections = result.detections
+        self.last_tracks = result.tracks
+        sensing_s = result.timing_metrics_s["sensing_s"]
+        dsp_s = result.timing_metrics_s["dsp_s"]
+        tracking_s = result.timing_metrics_s["tracking_s"]
         phase_started = perf_counter()
         self.signal_plots.set_range_product(
             self.last_range_profile,
@@ -391,7 +388,6 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_tracks(self.last_tracks)
         self.track_table.set_tracks(self.last_tracks)
         self.inspector.set_frame(self.last_detections, self.last_tracks)
-        self._refresh_world_views(update_editor=False)
         gui_refresh_s = perf_counter() - phase_started
         self.last_timing_metrics_s = {
             "simulation_s": simulation_s,
@@ -402,7 +398,7 @@ class MainWindow(QMainWindow):
             "total_s": perf_counter() - frame_started,
         }
         self.last_frame_result = FrameResult(
-            timestamp_s=self.world.time_s,
+            timestamp_s=result.timestamp_s,
             transmitted_signal=self.last_sensor_frame.transmitted_signal,
             received_signal=self.last_sensor_frame.received_signal,
             range_profile=self.last_range_profile,
@@ -427,7 +423,7 @@ class MainWindow(QMainWindow):
         """Pause and restore the edited scenario baseline."""
         self.timer.stop()
         self.world.reset()
-        self.sensor.reset()
+        self._rebuild_sensor_preserving_mode()
         self.last_sensor_frame = None
         self.last_range_profile = None
         self.last_cfar_result = None
@@ -436,7 +432,6 @@ class MainWindow(QMainWindow):
         self.last_timing_metrics_s = {}
         self.last_frame_result = None
         self.diagnostics.setText("No frame processed yet")
-        self.tracker.reset()
         self.last_detections = ()
         self.last_tracks = ()
         self.ppi_view.set_detections(())
@@ -449,16 +444,19 @@ class MainWindow(QMainWindow):
     def _add_target(self, target: Target) -> None:
         self.world.add_target(target)
         self.world.checkpoint_reset_state()
+        self._rebuild_sensor_preserving_mode()
         self._refresh_world_views()
 
     def _edit_target(self, old_id: str, target: Target) -> None:
         self.world.replace_target(old_id, target)
         self.world.checkpoint_reset_state()
+        self._rebuild_sensor_preserving_mode()
         self._refresh_world_views()
 
     def _remove_target(self, target_id: str) -> None:
         self.world.remove_target(target_id)
         self.world.checkpoint_reset_state()
+        self._rebuild_sensor_preserving_mode()
         self._refresh_world_views()
 
     def _set_sensor_mode(self, mode_text: str) -> None:
@@ -467,6 +465,7 @@ class MainWindow(QMainWindow):
         if mode is self.sensor_config.mode:
             return
         self.timer.stop()
+        self._invalidate_pending()
         self.sensor_config = (
             SensorConfig.radar() if mode is SensorMode.RADAR else SensorConfig.sonar()
         )
@@ -510,7 +509,7 @@ class MainWindow(QMainWindow):
         self.range_doppler_view.set_detections(())
         self.setWindowTitle(
             f"ECHORIN - {self.sensor_config.mode.value.title()} "
-            "Signal Processing Simulator"
+            "Engineering Workspace"
         )
 
     def _set_dt(self, dt_s: float) -> None:
@@ -538,9 +537,10 @@ class MainWindow(QMainWindow):
         self._rebuild_sensor_preserving_mode()
 
     def _set_waveform(self, waveform_text: str) -> None:
-        self.sensor.waveform_kind = (
+        waveform_kind = (
             WaveformKind.LFM if waveform_text == "LFM" else WaveformKind.RECTANGULAR
         )
+        self._rebuild_sensor_preserving_mode(waveform_kind=waveform_kind)
 
     def _set_preset(self, preset_text: str) -> None:
         self.timer.stop()
@@ -555,15 +555,18 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_targets(self.world.targets)
         self.target_editor.set_targets(self.world.targets)
 
-    def _rebuild_sensor_preserving_mode(self) -> None:
-        waveform_kind = self.sensor.waveform_kind
+    def _rebuild_sensor_preserving_mode(
+        self, waveform_kind: WaveformKind | None = None
+    ) -> None:
+        self._invalidate_pending()
+        waveform_kind = waveform_kind or self.sensor.waveform_kind
         self.sensor = create_sensor(
             self.sensor_config,
             self.world.sensor_pose,
             random_seed=self.simulation_config.random_seed,
         )
         self.sensor.waveform_kind = waveform_kind
-        self.tracker.reset()
+        self.tracker = MultiTargetTracker(self.tracker.config)
         self.last_detections = ()
         self.last_tracks = ()
 

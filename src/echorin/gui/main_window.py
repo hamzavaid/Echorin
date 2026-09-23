@@ -12,6 +12,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
+    QLabel,
     QMainWindow,
     QWidget,
 )
@@ -136,6 +137,16 @@ class MainWindow(QMainWindow):
             "Measurement / Track Inspector", "inspector", self.inspector,
             Qt.DockWidgetArea.RightDockWidgetArea,
         )
+        self.diagnostics = QLabel("No frame processed yet")
+        self.diagnostics.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.diagnostics.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.diagnostics.setMargin(10)
+        self.diagnostics_dock = self._add_dock(
+            "Performance / Diagnostics", "diagnostics", self.diagnostics,
+            Qt.DockWidgetArea.RightDockWidgetArea,
+        )
         self.resizeDocks(
             [self.controls_dock, self.scenario_dock], [390, 280],
             Qt.Orientation.Vertical,
@@ -147,8 +158,21 @@ class MainWindow(QMainWindow):
         if saved_state is not None:
             self.restoreState(saved_state)
         self.view_menu = self.menuBar().addMenu("View")
+        self.ppi_focus = False
+        self._pre_focus_state: bytes | None = None
+        self.ppi_focus_action = self.view_menu.addAction("Focus PPI")
+        self.ppi_focus_action.setCheckable(True)
+        self.ppi_focus_action.toggled.connect(self.set_ppi_focus)
+        self.view_menu.addSeparator()
         for dock in self.findChildren(QDockWidget):
             self.view_menu.addAction(dock.toggleViewAction())
+        self.view_menu.addSeparator()
+        self.theme_menu = self.view_menu.addMenu("Theme")
+        for name in ("dark", "light"):
+            action = self.theme_menu.addAction(name.title())
+            action.triggered.connect(lambda checked=False, choice=name:
+                                     self.apply_theme(choice))
+        self.apply_theme(str(self.settings.value("workspace/theme", "dark")))
 
         self.timer = QTimer(self)
         self._update_timer_interval()
@@ -203,9 +227,52 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist geometry and panel arrangement between sessions."""
         self.timer.stop()
+        if self.ppi_focus:
+            self.set_ppi_focus(False)
         self.settings.setValue("workspace/geometry", self.saveGeometry())
         self.settings.setValue("workspace/state", self.saveState())
         super().closeEvent(event)
+
+    def set_ppi_focus(self, enabled: bool) -> None:
+        """Temporarily enlarge the central PPI without losing dock layout."""
+        if enabled == self.ppi_focus:
+            return
+        self.ppi_focus = enabled
+        if enabled:
+            self._pre_focus_state = self.saveState()
+            for dock in self.findChildren(QDockWidget):
+                dock.hide()
+        elif self._pre_focus_state is not None:
+            self.restoreState(self._pre_focus_state)
+            self._pre_focus_state = None
+        self.ppi_focus_action.setChecked(enabled)
+
+    def apply_theme(self, theme: str) -> None:
+        """Apply and persist a readable dark or light engineering palette."""
+        if theme not in {"dark", "light"}:
+            raise ValueError("theme must be dark or light")
+        self.theme = theme
+        dark = theme == "dark"
+        background = "#101820" if dark else "#ffffff"
+        foreground = "#e8f0f2" if dark else "#192a35"
+        panel = "#1a2a33" if dark else "#eaf0f4"
+        self.setStyleSheet(
+            "QMainWindow, QDockWidget, QMenuBar, QMenu, QLabel, QGroupBox, "
+            f"QWidget {{ background: {panel}; color: {foreground}; }} "
+            f"QTableWidget {{ background: {background}; color: {foreground}; }} "
+            f"QComboBox, QDoubleSpinBox, QSpinBox {{ background: {background}; "
+            f"color: {foreground}; }}"
+        )
+        for plot in (
+            self.ppi_view.plot, self.signal_plots.range_plot,
+            self.signal_plots.doppler_plot, self.range_doppler_view.plot,
+        ):
+            plot.setBackground(background)
+            for axis_name in ("bottom", "left"):
+                axis = plot.getAxis(axis_name)
+                axis.setPen(foreground)
+                axis.setTextPen(foreground)
+        self.settings.setValue("workspace/theme", theme)
 
     def step_once(self) -> None:
         """Advance one world frame and run the observation/DSP/detection chain."""
@@ -333,6 +400,18 @@ class MainWindow(QMainWindow):
             tracks=list(self.last_tracks),
             timing_metrics_s=self.last_timing_metrics_s,
         )
+        self.diagnostics.setText(
+            f"Mode: {self.sensor_config.mode.value.title()}\n"
+            f"Simulation: {simulation_s * 1e3:.2f} ms\n"
+            f"Sensing: {sensing_s * 1e3:.2f} ms\n"
+            f"DSP: {dsp_s * 1e3:.2f} ms\n"
+            f"Tracking: {tracking_s * 1e3:.2f} ms\n"
+            f"GUI refresh: {gui_refresh_s * 1e3:.2f} ms\n"
+            f"Total: {self.last_timing_metrics_s['total_s'] * 1e3:.2f} ms\n"
+            f"Detections: {len(self.last_detections)}\n"
+            f"Tracks: {len(self.last_tracks)}"
+        )
+        self._refresh_world_views(update_editor=False)
 
     def reset(self) -> None:
         """Pause and restore the edited scenario baseline."""
@@ -345,6 +424,7 @@ class MainWindow(QMainWindow):
         self.last_doppler_product = None
         self.last_timing_metrics_s = {}
         self.last_frame_result = None
+        self.diagnostics.setText("No frame processed yet")
         self.tracker.reset()
         self.last_detections = ()
         self.last_tracks = ()
@@ -480,7 +560,10 @@ class MainWindow(QMainWindow):
         if update_editor:
             self.target_editor.set_targets(self.world.targets)
         self.statusBar().showMessage(
-            f"t={self.world.time_s:.2f}s | {len(self.world.targets)} targets"
+            f"{self.sensor_config.mode.value.title()} | t={self.world.time_s:.2f} s"
+            f" | {len(self.last_detections)} detections"
+            f" | {len(self.last_tracks)} tracks"
+            f" | frame {self.last_timing_metrics_s.get('total_s', 0.0) * 1e3:.1f} ms"
         )
 
 

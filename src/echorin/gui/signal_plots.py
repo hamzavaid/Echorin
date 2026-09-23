@@ -22,6 +22,7 @@ class SignalPlots(QWidget):
         self.range_plot = pg.PlotWidget(background="#101418")
         self.range_plot.setLabel("bottom", "Range", units="m")
         self.range_plot.setLabel("left", "Magnitude")
+        self.range_plot.addLegend()
         self.profile_curve = self.range_plot.plot(
             pen=pg.mkPen("c", width=1.5), name="Matched filter"
         )
@@ -36,7 +37,10 @@ class SignalPlots(QWidget):
         self.doppler_plot = pg.PlotWidget(background="#101418")
         self.doppler_plot.setLabel("bottom", "Radial velocity", units="m/s")
         self.doppler_plot.setLabel("left", "Magnitude")
-        self.doppler_curve = self.doppler_plot.plot(pen=pg.mkPen("g", width=1.5))
+        self.doppler_plot.addLegend()
+        self.doppler_curve = self.doppler_plot.plot(
+            pen=pg.mkPen("g", width=1.5), name="Selected range bin"
+        )
         layout.addWidget(self.doppler_plot)
 
     def set_range_product(

@@ -26,6 +26,7 @@ from echorin.dsp.doppler import (
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.heatmaps import RangeDopplerView
+from echorin.gui.inspectors import MeasurementTrackInspector
 from echorin.gui.ppi_view import PpiView
 from echorin.gui.signal_plots import SignalPlots
 from echorin.gui.visualization_data import RangeDopplerCell
@@ -130,6 +131,11 @@ class MainWindow(QMainWindow):
         )
         self.tabifyDockWidget(self.signal_dock, self.range_doppler_dock)
         self.signal_dock.raise_()
+        self.inspector = MeasurementTrackInspector()
+        self.inspector_dock = self._add_dock(
+            "Measurement / Track Inspector", "inspector", self.inspector,
+            Qt.DockWidgetArea.RightDockWidgetArea,
+        )
         self.resizeDocks(
             [self.controls_dock, self.scenario_dock], [390, 280],
             Qt.Orientation.Vertical,
@@ -171,6 +177,9 @@ class MainWindow(QMainWindow):
         self.target_editor.target_added.connect(self._add_target)
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
+        self.ppi_view.track_selected.connect(self.inspector.select_track)
+        self.ppi_view.detection_selected.connect(self.inspector.select_detection)
+        self.track_table.track_selected.connect(self.inspector.select_track)
         self.range_doppler_view.cell_selected.connect(self._inspect_doppler_cell)
         self._refresh_world_views()
 
@@ -304,6 +313,7 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_detections(self.last_detections)
         self.ppi_view.set_tracks(self.last_tracks)
         self.track_table.set_tracks(self.last_tracks)
+        self.inspector.set_frame(self.last_detections, self.last_tracks)
         self._refresh_world_views(update_editor=False)
         gui_refresh_s = perf_counter() - phase_started
         self.last_timing_metrics_s = {
@@ -341,6 +351,7 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_detections(())
         self.ppi_view.set_tracks(())
         self.track_table.set_tracks(())
+        self.inspector.clear()
         self.range_doppler_view.set_detections(())
         self._refresh_world_views()
 
@@ -403,6 +414,7 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_detections(())
         self.ppi_view.set_tracks(())
         self.track_table.set_tracks(())
+        self.inspector.clear()
         self.range_doppler_view.set_detections(())
         self.setWindowTitle(
             f"ECHORIN - {self.sensor_config.mode.value.title()} "

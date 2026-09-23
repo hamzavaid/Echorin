@@ -138,6 +138,8 @@ class SimulationControls(QGroupBox):
 class TrackTable(QGroupBox):
     """Read-only summary of sensor-derived active tracks."""
 
+    track_selected = Signal(int)
+
     HEADERS = ("ID", "Status", "X (m)", "Y (m)", "Vx (m/s)", "Vy (m/s)")
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -149,7 +151,14 @@ class TrackTable(QGroupBox):
             QHeaderView.ResizeMode.Stretch
         )
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.cellClicked.connect(self._select_row)
         layout.addWidget(self.table)
+
+    def _select_row(self, row: int, _column: int) -> None:
+        item = self.table.item(row, 0)
+        if item is not None:
+            self.track_selected.emit(int(item.text()))
 
     def set_tracks(self, tracks: Iterable[Track]) -> None:
         """Replace table rows with current track estimates."""

@@ -7,12 +7,12 @@ from dataclasses import replace
 from time import perf_counter
 
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QDockWidget,
     QMainWindow,
-    QSplitter,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         world: World | None = None,
         simulation_config: SimulationConfig | None = None,
         sensor_config: SensorConfig | None = None,
+        settings: QSettings | None = None,
     ) -> None:
         super().__init__()
         self.world = world or crossing_targets()
@@ -85,15 +86,15 @@ class MainWindow(QMainWindow):
         self.last_doppler_product: DopplerProduct | None = None
         self.last_timing_metrics_s: dict[str, float] = {}
         self.last_frame_result: FrameResult | None = None
-        self.setWindowTitle("ECHORIN - Radar Signal Processing Simulator")
-        self.resize(1_200, 800)
-
-        central = QWidget()
-        root_layout = QVBoxLayout(central)
-        splitter = QSplitter()
+        self.settings = settings or QSettings("Echorin", "Echorin")
+        self.setWindowTitle("ECHORIN - Radar Engineering Workspace")
+        self.resize(1_400, 900)
+        self.setDockOptions(
+            QMainWindow.DockOption.AllowNestedDocks
+            | QMainWindow.DockOption.AllowTabbedDocks
+        )
         self.ppi_view = PpiView(max_range_m=self.sensor_config.max_range_m)
-        side_panel = QWidget()
-        side_layout = QVBoxLayout(side_panel)
+        self.setCentralWidget(self.ppi_view)
         self.controls = SimulationControls()
         self.controls.dt_spin.setValue(self.simulation_config.dt_s)
         self.controls.seed_spin.setValue(self.simulation_config.random_seed)
@@ -103,19 +104,36 @@ class MainWindow(QMainWindow):
         self.controls.mode_combo.setCurrentText(self.sensor_config.mode.value.title())
         self.target_editor = TargetEditor()
         self.track_table = TrackTable()
-        side_layout.addWidget(self.controls)
-        side_layout.addWidget(self.target_editor)
-        side_layout.addWidget(self.track_table)
-        splitter.addWidget(self.ppi_view)
-        splitter.addWidget(side_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([760, 440])
-        splitter.setChildrenCollapsible(False)
-        root_layout.addWidget(splitter, stretch=3)
         self.signal_plots = SignalPlots()
-        root_layout.addWidget(self.signal_plots, stretch=1)
-        self.setCentralWidget(central)
+        self.controls_dock = self._add_dock(
+            "Sensor / Simulation", "controls", self.controls,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.scenario_dock = self._add_dock(
+            "Scenario", "scenario", self.target_editor,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.tracks_dock = self._add_dock(
+            "Tracks", "tracks", self.track_table,
+            Qt.DockWidgetArea.RightDockWidgetArea,
+        )
+        self.signal_dock = self._add_dock(
+            "Signal Products", "signals", self.signal_plots,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+        )
+        self.resizeDocks(
+            [self.controls_dock, self.scenario_dock], [390, 280],
+            Qt.Orientation.Vertical,
+        )
+        saved_geometry = self.settings.value("workspace/geometry")
+        saved_state = self.settings.value("workspace/state")
+        if saved_geometry is not None:
+            self.restoreGeometry(saved_geometry)
+        if saved_state is not None:
+            self.restoreState(saved_state)
+        self.view_menu = self.menuBar().addMenu("View")
+        for dock in self.findChildren(QDockWidget):
+            self.view_menu.addAction(dock.toggleViewAction())
 
         self.timer = QTimer(self)
         self._update_timer_interval()
@@ -140,6 +158,24 @@ class MainWindow(QMainWindow):
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
         self._refresh_world_views()
+
+    def _add_dock(
+        self, title: str, name: str, widget: QWidget, area: Qt.DockWidgetArea
+    ) -> QDockWidget:
+        """Create a persistent, movable engineering panel."""
+        dock = QDockWidget(title, self)
+        dock.setObjectName(f"echorin_{name}_dock")
+        dock.setWidget(widget)
+        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.addDockWidget(area, dock)
+        return dock
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Persist geometry and panel arrangement between sessions."""
+        self.timer.stop()
+        self.settings.setValue("workspace/geometry", self.saveGeometry())
+        self.settings.setValue("workspace/state", self.saveState())
+        super().closeEvent(event)
 
     def step_once(self) -> None:
         """Advance one world frame and run the observation/DSP/detection chain."""

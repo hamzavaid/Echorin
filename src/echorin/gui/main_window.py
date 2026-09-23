@@ -157,6 +157,11 @@ class MainWindow(QMainWindow):
         self.controls.detections_toggled.connect(self.ppi_view.set_detections_visible)
         self.controls.tracks_toggled.connect(self.ppi_view.set_tracks_visible)
         self.controls.trails_toggled.connect(self.ppi_view.set_trails_visible)
+        self.controls.labels_toggled.connect(self.ppi_view.set_labels_visible)
+        self.controls.vectors_toggled.connect(self.ppi_view.set_vectors_visible)
+        self.controls.uncertainty_toggled.connect(
+            self.ppi_view.set_uncertainty_visible
+        )
         self.controls.mode_changed.connect(self._set_sensor_mode)
         self.controls.dt_changed.connect(self._set_dt)
         self.controls.seed_changed.connect(self._set_seed)

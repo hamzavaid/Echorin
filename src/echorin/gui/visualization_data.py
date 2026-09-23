@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from echorin.dsp.doppler import DopplerProduct
+from echorin.models.track import Track, TrackStatus
 
 
 def to_db(
@@ -87,3 +88,79 @@ def range_doppler_image(product: DopplerProduct) -> RangeDopplerImage:
             raise ValueError("heatmap axes must be uniformly increasing")
     magnitude = product.magnitude
     return RangeDopplerImage(ranges, velocities, magnitude, to_db(magnitude))
+
+
+@dataclass(frozen=True, slots=True)
+class CovarianceEllipse:
+    """Position confidence contour derived from a track covariance matrix."""
+
+    x_m: NDArray[np.float64]
+    y_m: NDArray[np.float64]
+    major_radius_m: float
+    minor_radius_m: float
+    angle_rad: float
+
+
+def covariance_ellipse(
+    center_m: NDArray[np.float64],
+    position_covariance_m2: NDArray[np.float64],
+    confidence: float = 0.95,
+    point_count: int = 73,
+) -> CovarianceEllipse:
+    """Return a 2D Gaussian confidence ellipse using covariance eigenvectors."""
+    center = np.asarray(center_m, dtype=np.float64)
+    matrix = np.asarray(position_covariance_m2, dtype=np.float64)
+    if center.shape != (2,) or matrix.shape != (2, 2):
+        raise ValueError("center/covariance must have shapes (2,) and (2, 2)")
+    if not np.all(np.isfinite(center)) or not np.all(np.isfinite(matrix)):
+        raise ValueError("center and covariance must be finite")
+    if not 0.0 < confidence < 1.0 or point_count < 8:
+        raise ValueError("confidence and point_count must be valid")
+    if not np.allclose(matrix, matrix.T, atol=1e-10):
+        raise ValueError("position covariance must be symmetric")
+    eigenvalues, eigenvectors = np.linalg.eigh((matrix + matrix.T) / 2.0)
+    if eigenvalues[0] < -1e-9:
+        raise ValueError("position covariance must be positive semidefinite")
+    eigenvalues = np.maximum(eigenvalues, 0.0)
+    factor = float(np.sqrt(-2.0 * np.log1p(-confidence)))
+    major, minor = factor * np.sqrt(eigenvalues[::-1])
+    major_axis = eigenvectors[:, 1]
+    angle = float(np.mod(np.arctan2(major_axis[1], major_axis[0]), np.pi))
+    angles = np.linspace(0.0, 2.0 * np.pi, point_count)
+    contour = center[:, None] + eigenvectors @ (
+        factor * np.sqrt(eigenvalues)[:, None]
+        * np.vstack((np.sin(angles), np.cos(angles)))
+    )
+    return CovarianceEllipse(
+        contour[0], contour[1], float(major), float(minor), angle
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TrackOverlay:
+    """Plot-ready estimates without simulation target identity."""
+
+    track_id: int
+    status: TrackStatus
+    position_m: tuple[float, float]
+    velocity_end_m: tuple[float, float]
+    speed_mps: float
+    ellipse: CovarianceEllipse
+
+
+def track_overlay(track: Track, vector_horizon_s: float = 5.0) -> TrackOverlay:
+    """Build a velocity vector and 95% uncertainty contour from a track."""
+    if vector_horizon_s <= 0.0:
+        raise ValueError("vector_horizon_s must be positive")
+    ellipse = covariance_ellipse(track.state[:2], track.covariance[:2, :2])
+    return TrackOverlay(
+        track.track_id,
+        track.status,
+        (track.x_m, track.y_m),
+        (
+            track.x_m + track.vx_mps * vector_horizon_s,
+            track.y_m + track.vy_mps * vector_horizon_s,
+        ),
+        float(np.hypot(track.vx_mps, track.vy_mps)),
+        ellipse,
+    )

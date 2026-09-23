@@ -131,6 +131,17 @@ class RangeDopplerView(QWidget):
             y=[detection.radial_velocity_mps for detection in finite],
         )
 
+    def clear_product(self) -> None:
+        """Remove stale signal data after reset or sensor-mode change."""
+        self.product = None
+        self._axis_extent = None
+        self.image_item.clear()
+        self.selection_item.setData(x=[], y=[])
+        self.detection_item.setData(x=[], y=[])
+        self.cursor_x.hide()
+        self.cursor_y.hide()
+        self.readout.setText("Select a Range-Doppler cell")
+
     def _render(self) -> None:
         if self.product is None:
             return

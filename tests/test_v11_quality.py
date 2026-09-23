@@ -64,4 +64,9 @@ def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
             window.sensor_config.acquisition_samples,
         )
         assert window.last_frame_result is not None
+        if mode == "Sonar":
+            assert window.timer.interval() >= 400
+    window.reset()
+    assert window.range_doppler_view.product is None
+    assert window.range_doppler_view.image_item.image is None
     window.close()

@@ -148,6 +148,16 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.RightDockWidgetArea,
         )
         self.resizeDocks(
+            [self.tracks_dock, self.inspector_dock, self.diagnostics_dock],
+            [130, 250, 150], Qt.Orientation.Vertical,
+        )
+        self.resizeDocks(
+            [self.signal_dock], [380], Qt.Orientation.Vertical
+        )
+        self.resizeDocks(
+            [self.inspector_dock], [300], Qt.Orientation.Horizontal
+        )
+        self.resizeDocks(
             [self.controls_dock, self.scenario_dock], [390, 280],
             Qt.Orientation.Vertical,
         )
@@ -422,6 +432,7 @@ class MainWindow(QMainWindow):
         self.last_range_profile = None
         self.last_cfar_result = None
         self.last_doppler_product = None
+        self.range_doppler_view.clear_product()
         self.last_timing_metrics_s = {}
         self.last_frame_result = None
         self.diagnostics.setText("No frame processed yet")
@@ -488,6 +499,7 @@ class MainWindow(QMainWindow):
         self.last_range_profile = None
         self.last_cfar_result = None
         self.last_doppler_product = None
+        self.range_doppler_view.clear_product()
         self.last_detections = ()
         self.last_tracks = ()
         self.ppi_view.set_max_range(self.sensor_config.max_range_m)
@@ -507,7 +519,7 @@ class MainWindow(QMainWindow):
 
     def _update_timer_interval(self) -> None:
         """Keep timer cadence above measured mode processing workload."""
-        mode_floor_ms = 300 if self.sensor_config.mode is SensorMode.SONAR else 1
+        mode_floor_ms = 400 if self.sensor_config.mode is SensorMode.SONAR else 1
         self.timer.setInterval(
             max(mode_floor_ms, round(self.simulation_config.dt_s * 1_000.0))
         )

@@ -146,8 +146,8 @@ def test_release_metadata_public_docs_and_assets_are_complete() -> None:
         (ROOT / "benchmarks" / "tracking_results.json").read_text(encoding="utf-8")
     )
 
-    assert echorin.__version__ == "1.0.0"
-    assert 'version = "1.0.0"' in pyproject
+    assert echorin.__version__ == "1.1.0"
+    assert 'version = "1.1.0"' in pyproject
     for term in ("Radar", "Sonar", "Kalman", "Doppler", "CA-CFAR", "pytest"):
         assert term in readme
     for term in ("two-way", "matched filter", "Doppler", "CA-CFAR", "Kalman"):
@@ -196,3 +196,24 @@ def test_theory_uses_github_supported_latex_delimiters() -> None:
     assert "\\]" not in theory
     assert theory.count("$$") >= 10
     assert "$\\tau=2R/c$" in theory
+
+
+def test_v11_public_docs_and_demo_artifacts_describe_actual_scope() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    theory = (ROOT / "docs" / "theory.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+    notes = (ROOT / "docs" / "releases" / "v1.1.md").read_text(encoding="utf-8")
+    capture = (ROOT / "examples" / "capture_demo.py").read_text(
+        encoding="utf-8"
+    )
+    heatmap = (ROOT / "screenshots" / "echorin-range-doppler.png").read_bytes()
+
+    for term in ("dock", "Range-Doppler", "inspector", "covariance"):
+        assert term.lower() in readme.lower()
+        assert term.lower() in notes.lower()
+    assert "[velocity, range]" in theory
+    assert "QDockWidget" in architecture
+    assert "echorin-range-doppler.png" in capture
+    assert heatmap.startswith(b"\x89PNG\r\n\x1a\n") and len(heatmap) > 10_000

@@ -34,6 +34,9 @@ GUI / recording / benchmarks
   Mahalanobis-gated association, and maintains Kalman track lifecycle.
 - `gui/` is the only package that imports PySide6 or PyQtGraph. It orchestrates
   public layer APIs and renders PPI, range, threshold, Doppler, and track views.
+  `main_window.py` coordinates the application frame. `visualization_data.py`
+  and `inspection_data.py` adapt only published DSP, detection, and track data;
+  `heatmaps.py`, `ppi_view.py`, and `inspectors.py` render those adapters.
 - `recording.py` serializes scenarios and truth-free frame outputs.
 - `benchmark.py` compares noisy observations and filtered tracks against hidden
   truth strictly as an evaluation boundary.
@@ -45,6 +48,25 @@ trains, applies matched filtering, forms range/Doppler products, runs CA-CFAR,
 associates detections, updates tracks, publishes a `FrameResult`, and refreshes
 the GUI. Timings for simulation, sensing, DSP, tracking, and GUI refresh are
 measured separately.
+
+## v1.1 engineering workspace
+
+The central PPI is surrounded by named `QDockWidget` panels for sensor/scenario
+controls, tracks, signal products, the full Range-Doppler map, measurement/track
+inspection, and performance diagnostics. Users can move, float, hide, or resize
+panels. Qt settings persist dock geometry, selected tabs, and theme. The View
+menu includes temporary PPI focus mode and dark/light themes.
+
+The coherent Doppler FFT remains the only Range-Doppler processing path. Its
+`DopplerProduct` carries the physical range axis alongside the existing velocity
+axis and `[velocity, range]` spectrum. The GUI adapter floors dB values and
+maps image cells to physical coordinates. Selecting a heatmap cell updates the
+legacy one-dimensional Doppler spectrum. Detection markers, inspector fields,
+track vectors, and covariance ellipses derive from detection/track outputs;
+ground truth remains an optional, separately controlled PPI layer.
+
+The v1.1 GUI does not change sensor synthesis, detection, tracking, replay, or
+export file formats. Its added settings use the desktop Qt settings store.
 
 ## Simplifying assumptions
 

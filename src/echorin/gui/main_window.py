@@ -25,8 +25,10 @@ from echorin.dsp.doppler import (
 )
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
+from echorin.gui.heatmaps import RangeDopplerView
 from echorin.gui.ppi_view import PpiView
 from echorin.gui.signal_plots import SignalPlots
+from echorin.gui.visualization_data import RangeDopplerCell
 from echorin.models.detection import Detection
 from echorin.models.frame import FrameResult
 from echorin.models.track import Track
@@ -121,6 +123,13 @@ class MainWindow(QMainWindow):
             "Signal Products", "signals", self.signal_plots,
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
+        self.range_doppler_view = RangeDopplerView()
+        self.range_doppler_dock = self._add_dock(
+            "Range-Doppler", "range_doppler", self.range_doppler_view,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.signal_dock, self.range_doppler_dock)
+        self.signal_dock.raise_()
         self.resizeDocks(
             [self.controls_dock, self.scenario_dock], [390, 280],
             Qt.Orientation.Vertical,
@@ -157,7 +166,14 @@ class MainWindow(QMainWindow):
         self.target_editor.target_added.connect(self._add_target)
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
+        self.range_doppler_view.cell_selected.connect(self._inspect_doppler_cell)
         self._refresh_world_views()
+
+    def _inspect_doppler_cell(self, cell: RangeDopplerCell) -> None:
+        if self.last_doppler_product is not None:
+            self.signal_plots.set_doppler_product(
+                self.last_doppler_product, cell.range_bin
+            )
 
     def _add_dock(
         self, title: str, name: str, widget: QWidget, area: Qt.DockWidgetArea
@@ -278,6 +294,8 @@ class MainWindow(QMainWindow):
         self.signal_plots.set_doppler_product(
             self.last_doppler_product, selected_range_bin
         )
+        self.range_doppler_view.set_product(self.last_doppler_product)
+        self.range_doppler_view.set_detections(self.last_detections)
         self.ppi_view.set_detections(self.last_detections)
         self.ppi_view.set_tracks(self.last_tracks)
         self.track_table.set_tracks(self.last_tracks)
@@ -318,6 +336,7 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_detections(())
         self.ppi_view.set_tracks(())
         self.track_table.set_tracks(())
+        self.range_doppler_view.set_detections(())
         self._refresh_world_views()
 
     def _add_target(self, target: Target) -> None:
@@ -379,6 +398,7 @@ class MainWindow(QMainWindow):
         self.ppi_view.set_detections(())
         self.ppi_view.set_tracks(())
         self.track_table.set_tracks(())
+        self.range_doppler_view.set_detections(())
         self.setWindowTitle(
             f"ECHORIN - {self.sensor_config.mode.value.title()} "
             "Signal Processing Simulator"

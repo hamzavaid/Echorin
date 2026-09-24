@@ -289,7 +289,7 @@ class MainWindow(QMainWindow):
             f"QHeaderView::section, QTableCornerButton::section {{ "
             f"background: {control}; color: {foreground}; border: 0; "
             f"border-right: 1px solid {border}; border-bottom: 1px solid {border}; "
-            "padding: 4px; }} "
+            "padding: 4px; } "
             f"QTabBar::tab {{ background: {control}; color: {foreground}; "
             f"border: 1px solid {border}; padding: 5px 10px; }} "
             f"QTabBar::tab:selected {{ background: {selected}; color: {foreground}; }} "

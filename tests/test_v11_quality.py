@@ -57,6 +57,7 @@ def test_dark_theme_styles_native_headers_and_dock_tabs(tmp_path) -> None:
     assert "QTabBar::tab" in stylesheet
     assert "QTabBar::tab:selected" in stylesheet
     assert "selection-color" in stylesheet
+    assert stylesheet.count("{") == stylesheet.count("}")
     window.close()
     app.processEvents()
 

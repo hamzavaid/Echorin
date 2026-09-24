@@ -11,7 +11,7 @@ computes
 
 $$
 R=\sqrt{(x_t-x_s)^2+(y_t-y_s)^2},\qquad
-\theta=\mathrm{atan2}(y_t-y_s,x_t-x_s).
+\theta=\mathrm{atan2}(y_t-y_s, x_t-x_s).
 $$
 
 A monostatic pulse travels to the target and back, so its two-way delay is
@@ -125,9 +125,16 @@ two-dimensional Gaussian contour is
 
 $$
 \mathbf{p}(\phi)=\hat{\mathbf{p}}+
-Q\begin{bmatrix}\sqrt{\lambda_1}&0\\0&\sqrt{\lambda_2}\end{bmatrix}
+Q\begin{bmatrix}
+\sqrt{\lambda_1} & 0 \\
+0 & \sqrt{\lambda_2}
+\end{bmatrix}
 \sqrt{-2\ln(1-0.95)}
-\begin{bmatrix}\sin\phi\\\cos\phi\end{bmatrix}.
+\begin{bmatrix}
+\cos\phi \\
+\sin\phi
+\end{bmatrix},
+\qquad 0 \le \phi < 2\pi.
 $$
 
 Velocity arrows start at the track estimate and end at the position predicted

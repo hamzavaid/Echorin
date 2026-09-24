@@ -45,6 +45,22 @@ def test_diagnostics_and_theme_are_live_and_persistent(tmp_path) -> None:
     app.processEvents()
 
 
+def test_dark_theme_styles_native_headers_and_dock_tabs(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = QSettings(str(tmp_path / "labels.ini"), QSettings.Format.IniFormat)
+    window = MainWindow(settings=settings)
+    window.apply_theme("dark")
+
+    stylesheet = window.styleSheet()
+    assert "QHeaderView::section" in stylesheet
+    assert "QTableCornerButton::section" in stylesheet
+    assert "QTabBar::tab" in stylesheet
+    assert "QTabBar::tab:selected" in stylesheet
+    assert "selection-color" in stylesheet
+    window.close()
+    app.processEvents()
+
+
 def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
     app = QApplication.instance() or QApplication([])
     settings = QSettings(str(tmp_path / "modes.ini"), QSettings.Format.IniFormat)

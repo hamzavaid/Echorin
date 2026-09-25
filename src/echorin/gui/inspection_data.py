@@ -70,16 +70,24 @@ class InspectionModel:
             ),
             "Cartesian X": (
                 f"{detection.range_m * np.cos(bearing):.3f} m"
-                if finite_bearing else "Unavailable"
+                if finite_bearing
+                else "Unavailable"
             ),
             "Cartesian Y": (
                 f"{detection.range_m * np.sin(bearing):.3f} m"
-                if finite_bearing else "Unavailable"
+                if finite_bearing
+                else "Unavailable"
             ),
             "Amplitude": f"{detection.amplitude:.4g}",
             "SNR": f"{detection.snr_db:.2f} dB",
             "Confidence": f"{detection.confidence:.3f}",
             "Source bin": str(detection.source_bin),
+            "Angle bin": (
+                str(detection.source_angle_bin)
+                if detection.source_angle_bin is not None
+                else "Unavailable"
+            ),
+            "Receiver": detection.receiver_id,
         }
         self.selected_kind = "detection"
         self.selected_id = index
@@ -106,10 +114,12 @@ class InspectionModel:
             "Heading": f"{np.degrees(np.arctan2(track.vy_mps, track.vx_mps)):.2f}°",
             "Position covariance": np.array2string(
                 track.covariance[:2, :2], precision=2, suppress_small=True
-            ) + " m²",
+            )
+            + " m²",
             "Velocity covariance": np.array2string(
                 track.covariance[2:, 2:], precision=2, suppress_small=True
-            ) + " (m/s)²",
+            )
+            + " (m/s)²",
             "Age / hits / misses": f"{track.age} / {track.hits} / {track.misses}",
         }
         self.selected_kind = "track"

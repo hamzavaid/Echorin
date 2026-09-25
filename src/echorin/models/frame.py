@@ -14,6 +14,8 @@ class FrameResult:
     transmitted_signal: Any | None = None
     received_signal: Any | None = None
     range_profile: Any | None = None
+    range_doppler_product: Any | None = None
+    range_angle_product: Any | None = None
     detections: list[Any] = field(default_factory=list)
     tracks: list[Any] = field(default_factory=list)
     ground_truth: list[Any] | None = None

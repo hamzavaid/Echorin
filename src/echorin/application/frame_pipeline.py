@@ -15,6 +15,11 @@ from echorin.dsp.doppler import (
     doppler_spectrum,
     enrich_detections_with_velocity,
 )
+from echorin.dsp.range_angle import (
+    RangeAngleProduct,
+    angle_detections,
+    range_angle_product,
+)
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.models.detection import Detection
 from echorin.models.track import Track
@@ -32,6 +37,7 @@ class FrameComputation:
     range_profile: RangeProfile
     cfar_result: CfarResult
     doppler_product: DopplerProduct
+    range_angle_product: RangeAngleProduct
     detections: tuple[Detection, ...]
     tracks: tuple[Track, ...]
     timing_metrics_s: dict[str, float]
@@ -48,24 +54,11 @@ def process_frame(
 ) -> FrameComputation:
     """Synthesize, filter, detect and track one frame outside the Qt thread."""
     phase_started = perf_counter()
-    directional_pulse_trains = sensor.acquire_directional_pulse_trains(
+    array_frame = sensor.acquire_array_pulse_train(
         targets, timestamp_s=timestamp_s, pulse_count=pulse_count
     )
-    if directional_pulse_trains:
-        combined_pulses = sum(
-            (frame.received_pulses for frame in directional_pulse_trains),
-            start=np.zeros(
-                (pulse_count, sensor.config.acquisition_samples),
-                dtype=np.complex128,
-            ),
-        )
-        transmitted = directional_pulse_trains[0].transmitted_signal
-    else:
-        pulse_train = sensor.acquire_pulse_train(
-            (), timestamp_s=timestamp_s, pulse_count=pulse_count
-        )
-        combined_pulses = pulse_train.received_pulses
-        transmitted = pulse_train.transmitted_signal
+    combined_pulses = array_frame.samples[array_frame.array_geometry.reference_element]
+    transmitted = array_frame.transmitted_signal
     sensing_s = perf_counter() - phase_started
 
     phase_started = perf_counter()
@@ -73,36 +66,23 @@ def process_frame(
     range_profile = signal_processor.range_profile(
         sensor_frame.received_signal, sensor_frame.transmitted_signal
     )
-    # The combined channel has no bearing estimate; directional frames carry
-    # their existing noisy angular measurement without target identity.
     cfar_result = cfar_detector.detect(
         range_profile, timestamp_s=timestamp_s, bearing_rad=float("nan")
     )
-    detections: list[Detection] = []
-    for directional_frame in directional_pulse_trains:
-        range_responses = signal_processor.pulse_matrix_range_responses(
-            directional_frame.received_pulses,
-            directional_frame.transmitted_signal,
-        )
-        directional_profile = RangeProfile(
-            signal_processor.range_axis(range_responses.shape[1]),
-            range_responses[0],
-        )
-        directional_result = cfar_detector.detect(
-            directional_profile,
-            timestamp_s=timestamp_s,
-            bearing_rad=directional_frame.bearing_rad,
-        )
-        directional_doppler = doppler_spectrum(range_responses, sensor.config)
-        detections.extend(
-            enrich_detections_with_velocity(
-                directional_result.detections, directional_doppler
-            )
-        )
-    combined_responses = signal_processor.pulse_matrix_range_responses(
-        combined_pulses, transmitted
-    )
+    responses = signal_processor.array_range_responses(array_frame.samples, transmitted)
+    combined_responses = responses[array_frame.array_geometry.reference_element]
     doppler_product = doppler_spectrum(combined_responses, sensor.config)
+    range_angle = range_angle_product(
+        responses[:, :1, :],
+        signal_processor.range_axis(responses.shape[-1]),
+        array_frame.array_geometry,
+        sensor.config,
+        np.linspace(-np.pi / 2, np.pi / 2, 181),
+        timestamp_s,
+    )
+    detections = enrich_detections_with_velocity(
+        angle_detections(cfar_result.detections, range_angle), doppler_product
+    )
     dsp_s = perf_counter() - phase_started
 
     phase_started = perf_counter()
@@ -114,6 +94,7 @@ def process_frame(
         range_profile=range_profile,
         cfar_result=cfar_result,
         doppler_product=doppler_product,
+        range_angle_product=range_angle,
         detections=tuple(detections),
         tracks=tuple(deepcopy(track) for track in tracks),
         timing_metrics_s={

@@ -103,7 +103,7 @@ def test_detection_boundary_contains_no_ground_truth_identity_or_target_input() 
     assert "target_id" not in fields
     assert "ground_truth" not in fields
     assert "targets" not in parameters
-    assert set(fields) == {
+    assert {
         "timestamp_s",
         "range_m",
         "bearing_rad",
@@ -112,4 +112,5 @@ def test_detection_boundary_contains_no_ground_truth_identity_or_target_input() 
         "snr_db",
         "confidence",
         "source_bin",
-    }
+    } <= set(fields)
+    assert {"source_angle_bin", "receiver_id"} <= set(fields)

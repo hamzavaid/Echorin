@@ -23,11 +23,13 @@ from echorin.application.frame_pipeline import FrameComputation, process_frame
 from echorin.config import NoiseConfig, SensorConfig, SensorMode, SimulationConfig
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
 from echorin.dsp.doppler import DopplerProduct
+from echorin.dsp.range_angle import RangeAngleProduct
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.heatmaps import RangeDopplerView
 from echorin.gui.inspectors import MeasurementTrackInspector
 from echorin.gui.ppi_view import PpiView
+from echorin.gui.range_angle_view import RangeAngleView
 from echorin.gui.signal_plots import SignalPlots
 from echorin.gui.visualization_data import RangeDopplerCell
 from echorin.models.detection import Detection
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         self.last_tracks: tuple[Track, ...] = ()
         self.doppler_pulse_count = 32
         self.last_doppler_product: DopplerProduct | None = None
+        self.last_range_angle_product: RangeAngleProduct | None = None
         self.last_timing_metrics_s: dict[str, float] = {}
         self.last_frame_result: FrameResult | None = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="echorin")
@@ -137,6 +140,12 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
         self.tabifyDockWidget(self.signal_dock, self.range_doppler_dock)
+        self.range_angle_view = RangeAngleView()
+        self.range_angle_dock = self._add_dock(
+            "Range-Angle", "range_angle", self.range_angle_view,
+            Qt.DockWidgetArea.BottomDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.signal_dock, self.range_angle_dock)
         self.signal_dock.raise_()
         self.inspector = MeasurementTrackInspector()
         self.inspector_dock = self._add_dock(
@@ -303,6 +312,7 @@ class MainWindow(QMainWindow):
         for plot in (
             self.ppi_view.plot, self.signal_plots.range_plot,
             self.signal_plots.doppler_plot, self.range_doppler_view.plot,
+            self.range_angle_view.plot,
         ):
             plot.setBackground(background)
             for axis_name in ("bottom", "left"):
@@ -376,6 +386,7 @@ class MainWindow(QMainWindow):
         self.last_range_profile = result.range_profile
         self.last_cfar_result = result.cfar_result
         self.last_doppler_product = result.doppler_product
+        self.last_range_angle_product = result.range_angle_product
         self.last_detections = result.detections
         self.last_tracks = result.tracks
         sensing_s = result.timing_metrics_s["sensing_s"]
@@ -400,6 +411,8 @@ class MainWindow(QMainWindow):
         )
         self.range_doppler_view.set_product(self.last_doppler_product)
         self.range_doppler_view.set_detections(self.last_detections)
+        self.range_angle_view.set_product(self.last_range_angle_product)
+        self.range_angle_view.set_detections(self.last_detections)
         self.ppi_view.set_detections(self.last_detections)
         self.ppi_view.set_tracks(self.last_tracks)
         self.track_table.set_tracks(self.last_tracks)
@@ -418,6 +431,8 @@ class MainWindow(QMainWindow):
             transmitted_signal=self.last_sensor_frame.transmitted_signal,
             received_signal=self.last_sensor_frame.received_signal,
             range_profile=self.last_range_profile,
+            range_doppler_product=self.last_doppler_product,
+            range_angle_product=self.last_range_angle_product,
             detections=list(self.last_detections),
             tracks=list(self.last_tracks),
             timing_metrics_s=self.last_timing_metrics_s,
@@ -445,6 +460,8 @@ class MainWindow(QMainWindow):
         self.last_cfar_result = None
         self.last_doppler_product = None
         self.range_doppler_view.clear_product()
+        self.last_range_angle_product = None
+        self.range_angle_view.clear_product()
         self.last_timing_metrics_s = {}
         self.last_frame_result = None
         self.diagnostics.setText("No frame processed yet")
@@ -515,6 +532,8 @@ class MainWindow(QMainWindow):
         self.last_cfar_result = None
         self.last_doppler_product = None
         self.range_doppler_view.clear_product()
+        self.last_range_angle_product = None
+        self.range_angle_view.clear_product()
         self.last_detections = ()
         self.last_tracks = ()
         self.ppi_view.set_max_range(self.sensor_config.max_range_m)

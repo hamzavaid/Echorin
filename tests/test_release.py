@@ -146,8 +146,8 @@ def test_release_metadata_public_docs_and_assets_are_complete() -> None:
         (ROOT / "benchmarks" / "tracking_results.json").read_text(encoding="utf-8")
     )
 
-    assert echorin.__version__ == "1.1.0"
-    assert 'version = "1.1.0"' in pyproject
+    assert echorin.__version__ == "1.2.0"
+    assert 'version = "1.2.0"' in pyproject
     for term in ("Radar", "Sonar", "Kalman", "Doppler", "CA-CFAR", "pytest"):
         assert term in readme
     for term in ("two-way", "matched filter", "Doppler", "CA-CFAR", "Kalman"):

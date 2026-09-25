@@ -1,8 +1,44 @@
 # Signal Processing and Tracking Theory
 
 Echorin is an educational radar and sonar simulator. Its algorithms are real,
-but its point-target propagation and ideal angular channels are deliberately
+but its point-target propagation and narrowband array physics are deliberately
 simpler than high-fidelity electromagnetic or acoustic models.
+
+## Receiver array and direction finding (v1.2)
+
+The default eight-element uniform linear array lies along receiver-local +y;
++x is broadside, and positive bearing rotates counterclockwise toward +y.
+Elements are spaced at half the carrier wavelength $\lambda=c/f_c$. For an
+incoming far-field wave at receiver-relative angle $\theta$, element offset
+$\mathbf r_e$, and direction $\mathbf u(\theta)=(\cos\theta,\sin\theta)$,
+the simulated narrowband phase is
+
+$$
+a_e(\theta)=\exp\!\left(j\frac{2\pi}{\lambda}
+\mathbf r_e\cdot\mathbf u(\theta)\right).
+$$
+
+For adjacent ULA elements, this gives
+$\Delta\phi=(2\pi d/\lambda)\sin\theta$. All target returns are summed in
+each physical element before noise is added. The production detector never sees
+the target bearing or identity. Matched-filter element responses form the
+snapshot vector $\mathbf x(r)$, and Bartlett power is
+
+$$
+P(\theta,r)=\frac{|\mathbf a(\theta)^H\mathbf x(r)|^2}
+{\mathbf a(\theta)^H\mathbf a(\theta)}.
+$$
+
+The stored Range-Angle product has axis order `[bearing, range]`, with radians
+and metres as cell centers. The GUI shows degrees and either linear power or
+amplitude-equivalent dB $10\log_{10}P$. To limit Sonar frame cost, the live
+range-angle map uses one coherent pulse snapshot; the full pulse train remains
+available for Doppler. The GUI downsamples only large images to at most 2048
+displayed range columns; the complete product and physical cell inspection
+remain available. Range CFAR picks candidate range bins, then separate
+angular maxima above half the strongest Bartlett peak at each range supply
+bearing detections. The ULA scan covers -90 to +90 degrees and cannot resolve
+front/back ambiguity; this is a physical limitation of the linear geometry.
 
 ## Geometry and two-way propagation
 

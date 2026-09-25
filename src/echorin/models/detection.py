@@ -17,6 +17,8 @@ class Detection:
     snr_db: float
     confidence: float
     source_bin: int
+    source_angle_bin: int | None = None
+    receiver_id: str = "receiver-0"
 
     def __post_init__(self) -> None:
         if self.range_m < 0.0:

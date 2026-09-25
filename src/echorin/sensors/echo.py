@@ -11,7 +11,9 @@ from numpy.typing import NDArray
 from echorin.config import SensorConfig, SensorMode
 from echorin.dsp.doppler import radial_velocity_to_doppler_hz
 from echorin.models.geometry import SensorPose
+from echorin.sensors.array import ArrayGeometry, uniform_linear_array
 from echorin.sensors.base import (
+    ArrayPulseData,
     DirectionalPulseTrainFrame,
     DirectionalSensorFrame,
     PulseTrainFrame,
@@ -36,6 +38,7 @@ class SyntheticMonostaticSensor(Sensor):
         random_seed: int = 7,
         waveform_kind: WaveformKind = WaveformKind.LFM,
         bearing_noise_std_rad: float = 0.002,
+        array_geometry: ArrayGeometry | None = None,
     ) -> None:
         if config.mode is not expected_mode:
             raise ValueError(
@@ -48,6 +51,13 @@ class SyntheticMonostaticSensor(Sensor):
         self.pose = pose or SensorPose()
         self.waveform_kind = waveform_kind
         self.bearing_noise_std_rad = bearing_noise_std_rad
+        wavelength = config.propagation_speed_mps / config.carrier_frequency_hz
+        self.array_geometry = array_geometry or uniform_linear_array(
+            8,
+            wavelength / 2,
+            carrier_frequency_hz=config.carrier_frequency_hz,
+            propagation_speed_mps=config.propagation_speed_mps,
+        )
         self._random_seed = random_seed
         self._rng = np.random.default_rng(random_seed)
 
@@ -162,6 +172,61 @@ class SyntheticMonostaticSensor(Sensor):
                 )
             )
         return tuple(frames)
+
+    def acquire_array_pulse_train(
+        self,
+        targets: Iterable[ReflectiveTarget],
+        timestamp_s: float,
+        pulse_count: int,
+    ) -> ArrayPulseData:
+        """Accumulate all target echoes in physical receiver channels before DSP."""
+        self._validate_pulse_count(pulse_count)
+        transmitted = generate_waveform(self.config, self.waveform_kind)
+        shape = (
+            self.array_geometry.element_count,
+            pulse_count,
+            self.config.acquisition_samples,
+        )
+        received = np.zeros(shape, dtype=np.complex128)
+        wavelength = (
+            self.config.propagation_speed_mps / self.config.carrier_frequency_hz
+        )
+        relative = (
+            self.array_geometry.element_positions_m
+            - self.array_geometry.element_positions_m[
+                self.array_geometry.reference_element
+            ]
+        )
+        for target in targets:
+            geometry = relative_geometry(self.pose, target)
+            if geometry.range_m > self.config.max_range_m:
+                continue
+            local_angle = (
+                geometry.bearing_rad
+                - self.pose.heading_rad
+                - self.array_geometry.orientation_rad
+            )
+            direction = np.array([np.cos(local_angle), np.sin(local_angle)])
+            phase = np.exp(2j * np.pi * (relative @ direction) / wavelength)
+            response = self._coherent_target_return(
+                transmitted,
+                geometry.range_m,
+                geometry.radial_velocity_mps,
+                target.reflectivity,
+                pulse_count,
+            )
+            received += phase[:, None, None] * response[None, :, :]
+        noisy = add_awgn(received, self.config.noise_model, self._rng)
+        return ArrayPulseData(
+            timestamp_s,
+            transmitted,
+            np.asarray(noisy, dtype=np.complex128),
+            self.config.sample_rate_hz,
+            self.config.prf_hz,
+            self.config.carrier_frequency_hz,
+            self.pose,
+            self.array_geometry,
+        )
 
     def _measure_bearing(self, true_bearing_rad: float) -> float:
         measured = true_bearing_rad + float(

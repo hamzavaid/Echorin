@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from scipy.signal import find_peaks
+from scipy.signal import fftconvolve, find_peaks
 
 from echorin.config import SensorConfig
 from echorin.dsp.matched_filter import matched_filter
@@ -85,6 +85,23 @@ class SignalProcessor:
         return np.asarray(
             [self.matched_filter(pulse, transmitted_signal) for pulse in pulses],
             dtype=np.complex128,
+        )
+
+    def array_range_responses(
+        self,
+        samples: ArrayLike,
+        transmitted_signal: ArrayLike,
+    ) -> NDArray[np.complex128]:
+        """FFT matched-filter array observations along fast time in one batch."""
+        data = np.asarray(samples, dtype=np.complex128)
+        reference = np.asarray(transmitted_signal)
+        if data.ndim != 3 or reference.ndim != 1 or not reference.size:
+            raise ValueError("expected [element, pulse, sample] and 1D reference")
+        kernel = np.conjugate(reference[::-1])[None, None, :]
+        full = fftconvolve(data, kernel, mode="full", axes=-1)
+        offset = reference.size - 1
+        return np.asarray(
+            full[..., offset : offset + data.shape[-1]], dtype=np.complex128
         )
 
 

@@ -10,6 +10,9 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
+from echorin.models.geometry import SensorPose
+from echorin.sensors.array import ArrayGeometry
+
 
 class ReflectiveTarget(Protocol):
     """Ground-truth properties required only for echo synthesis."""
@@ -51,6 +54,21 @@ class DirectionalPulseTrainFrame(PulseTrainFrame):
     """Coherent pulse train from one measured angular channel."""
 
     bearing_rad: float
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayPulseData:
+    """Composite coherent observations [element, pulse, fast-time sample]."""
+
+    timestamp_s: float
+    transmitted_signal: NDArray[np.float64]
+    samples: NDArray[np.complex128]
+    sample_rate_hz: float
+    prf_hz: float
+    carrier_frequency_hz: float
+    receiver_pose: SensorPose
+    array_geometry: ArrayGeometry
+    receiver_id: str = "receiver-0"
 
 
 class Sensor(ABC):

@@ -1,9 +1,10 @@
-# Echorin v1.1
+# Echorin v1.2
 
 Echorin is a real-time 2D Radar and Sonar simulation application that keeps
 ground truth separate from sensing. Moving point targets produce delayed,
-attenuated, noisy echoes; the application applies matched filtering, CA-CFAR,
-coherent Doppler processing, and Kalman multi-target tracking before displaying
+attenuated, noisy array echoes; the application applies matched filtering,
+Bartlett range-angle processing, CA-CFAR, coherent Doppler processing, and
+Kalman multi-target tracking before displaying
 the results in a dockable PySide6/PyQtGraph engineering workspace.
 
 ![Echorin main window](screenshots/echorin-main.png)
@@ -16,10 +17,11 @@ the results in a dockable PySide6/PyQtGraph engineering workspace.
 ## Processing architecture
 
 ```text
-World truth -> Radar/Sonar propagation -> sampled echoes + AWGN
+World truth -> Radar/Sonar propagation -> composite array samples + AWGN
                                               |
                                               v
-matched filter -> range profile -> Doppler FFT -> CA-CFAR detections
+matched filter -> range/angle + Doppler products -> CA-CFAR range peaks
+                                           -> Bartlett angle peaks
                                                         |
                                                         v
                                  association -> Kalman tracks -> GUI/export
@@ -38,6 +40,11 @@ simulation target IDs.
 | Full Range-Doppler heatmap and cell inspection | — | Yes |
 | Track ID, status, velocity, covariance overlays | Partial | Yes |
 | Measurement/track inspector, diagnostics, theme/layout memory | — | Yes |
+
+v1.2 adds an eight-element receiver array, signal-derived bearings, a
+Range-Angle heatmap, and two-target angular-resolution validation. Both Radar
+and Sonar use the composite array path; the legacy directional API remains for
+compatibility only.
 
 - Constant-velocity scenarios with deterministic seeds and editable targets
 - Radar and Sonar modes through one validated monostatic sensor abstraction
@@ -117,12 +124,16 @@ python examples/capture_demo.py
 - [Signal-processing and tracking theory](docs/theory.md)
 - [Architecture and package boundaries](docs/architecture.md)
 - [v1.1 release notes](docs/releases/v1.1.md)
+- [v1.2 release notes](docs/releases/v1.2.md)
+- [Array benchmark scenarios](docs/scenarios.md)
 - [Tracking benchmark results](benchmarks/tracking_results.json)
 
 ## Simulation assumptions
 
 Echorin is an educational engineering simulator, not a high-fidelity propagation
 or operational sensing system. It uses point reflectors, integer-sample delays,
-a bounded simplified inverse-power amplitude law, AWGN, idealized angular
-channels, and a stop-and-hop coherent-pulse model. It does not model clutter,
+a bounded simplified inverse-power amplitude law, AWGN, a far-field narrowband
+array phase model, and a stop-and-hop coherent-pulse model. A linear array has
+front/back ambiguity and the initial scan covers receiver-relative -90 to +90
+degrees. It does not model clutter,
 multipath, detailed antenna/acoustic beam patterns, ray tracing, or hardware.

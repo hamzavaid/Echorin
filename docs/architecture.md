@@ -83,6 +83,8 @@ beamforming. Both operate only on sampled signal products. Array-enabled
 tracking propagates range/bearing measurement uncertainty into world Cartesian
 covariance for gating, correction and track initialization; legacy tracker
 callers retain their fixed-variance path.
+The GUI configures edge-adaptive CA-CFAR for near-range acquisition, while
+the reusable detector's default masked-edge policy is backward compatible.
 
 ## v1.3 moving-platform boundary
 

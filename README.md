@@ -68,6 +68,8 @@ use the composite array path; the legacy directional API remains for compatibili
 - Run, pause, step, reset, Radar/Sonar, timestep, seed, noise, waveform, and
   scenario-preset controls
 - Forward-observable Crossing preset with two sustained Radar tracks
+- Single preset at 1.5 km in Radar (half configured range in Sonar), with
+  edge-adaptive CA-CFAR retaining close-range Radar detection
 - Scenario JSON save/load plus replayable detection/track JSON and CSV export
 - Versioned scenario and frame JSON with receiver pose and platform trajectory;
   legacy v1 files remain readable

@@ -36,3 +36,12 @@ ambiguity made it appear at the other's bearing. The preset does not pretend
 that a linear array can resolve two targets at exactly the same range and
 bearing. Regression tests follow the default seed for 160 frames and additional
 seeds for tracker-ID continuity.
+
+## Single preset range
+
+The Radar Single preset uses a stationary point reflector at 1,500 m, near
+the Crossing preset's scale rather than almost at the PPI origin. Sonar caps
+the preset at half its configured maximum range (100 m by default). Edge-
+adaptive CA-CFAR separately validates that an explicitly configured 100-m
+Radar target is detected; moving the preset does not hide a near-range blind
+spot in the processing chain.

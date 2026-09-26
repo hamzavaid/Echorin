@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,6 +21,7 @@ class CfarConfig:
     guard_cells: int = 4
     false_alarm_probability: float = 1e-3
     minimum_separation_bins: int = 1
+    edge_mode: Literal["mask", "adaptive"] = "mask"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +46,8 @@ class CaCfarDetector:
             raise ValueError("false_alarm_probability must lie between zero and one")
         if self.config.minimum_separation_bins < 1:
             raise ValueError("minimum_separation_bins must be at least one")
+        if self.config.edge_mode not in ("mask", "adaptive"):
+            raise ValueError("edge_mode must be 'mask' or 'adaptive'")
 
     @property
     def training_count(self) -> int:
@@ -71,15 +75,29 @@ class CaCfarDetector:
 
         kernel = np.ones(2 * edge + 1, dtype=np.float64)
         kernel[training : training + 2 * guard + 1] = 0.0
-        training_sum = np.convolve(power, kernel, mode="same")
-        noise_power = training_sum / self.training_count
-        threshold = np.sqrt(noise_power * self.threshold_scale)
-
-        if edge:
-            noise_power[:edge] = np.nan
-            noise_power[-edge:] = np.nan
-            threshold[:edge] = np.nan
-            threshold[-edge:] = np.nan
+        padded_power = np.pad(power, (edge, edge))
+        training_sum = np.convolve(padded_power, kernel, mode="valid")
+        if self.config.edge_mode == "mask":
+            noise_power = training_sum / self.training_count
+            threshold = np.sqrt(noise_power * self.threshold_scale)
+            if edge:
+                noise_power[:edge] = np.nan
+                noise_power[-edge:] = np.nan
+                threshold[:edge] = np.nan
+                threshold[-edge:] = np.nan
+        else:
+            training_count = np.convolve(
+                np.pad(np.ones_like(power), (edge, edge)), kernel, mode="valid"
+            )
+            noise_power = np.full_like(power, np.nan)
+            threshold = np.full_like(power, np.nan)
+            valid = training_count >= self.config.training_cells
+            counts = training_count[valid]
+            noise_power[valid] = training_sum[valid] / counts
+            alpha = counts * (
+                self.config.false_alarm_probability ** (-1.0 / counts) - 1.0
+            )
+            threshold[valid] = np.sqrt(noise_power[valid] * alpha)
 
         peak_bins, properties = find_peaks(
             magnitude,

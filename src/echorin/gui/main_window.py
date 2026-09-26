@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
                 guard_cells=4,
                 false_alarm_probability=1e-3,
                 minimum_separation_bins=max(1, self.sensor_config.pulse_samples // 8),
+                edge_mode="adaptive",
             )
         )
         self.last_sensor_frame: SensorFrame | None = None
@@ -579,6 +580,7 @@ class MainWindow(QMainWindow):
                 guard_cells=4,
                 false_alarm_probability=1e-3,
                 minimum_separation_bins=max(1, self.sensor_config.pulse_samples // 8),
+                edge_mode="adaptive",
             )
         )
         self.tracker = MultiTargetTracker(
@@ -648,7 +650,7 @@ class MainWindow(QMainWindow):
             crossing_targets(seed=self.simulation_config.random_seed)
             if preset_text == "Crossing"
             else single_stationary_target(
-                range_m=min(100.0, self.sensor_config.max_range_m / 2.0)
+                range_m=min(1_500.0, self.sensor_config.max_range_m / 2.0)
             )
         )
         self._rebuild_sensor_preserving_mode()

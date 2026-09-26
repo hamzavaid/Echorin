@@ -125,6 +125,12 @@ $$
 
 Echorin compares profile power with $T$, retains local maxima, and exposes
 $\sqrt T$ for plotting against matched-filter magnitude.
+The GUI uses an edge-adaptive CA-CFAR variant for close targets: unavailable
+training cells beyond the acquisition boundary are omitted, the local $N$
+and $\alpha$ are recomputed from the remaining cells, and a cell is tested
+only when at least one side supplies the configured training-cell count.
+The legacy masked-edge mode remains the default numerical API. A 100-m Radar
+echo falls inside that legacy mask but is testable with the adaptive mode.
 
 The v1.3 production detector also rejects deterministic matched-filter
 sidelobes using the *known transmitted waveform*, not target truth. A delayed

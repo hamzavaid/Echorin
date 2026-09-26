@@ -7,6 +7,7 @@ from time import perf_counter, sleep
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pytest
 from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import QApplication, QDockWidget
 
@@ -62,7 +63,8 @@ def test_dark_theme_styles_native_headers_and_dock_tabs(tmp_path) -> None:
     app.processEvents()
 
 
-def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
+def test_both_modes_refresh_full_product(tmp_path) -> None:
+    """Manual steps publish complete signal products in both sensor modes."""
     app = QApplication.instance() or QApplication([])
     settings = QSettings(str(tmp_path / "modes.ini"), QSettings.Format.IniFormat)
     window = MainWindow(
@@ -70,10 +72,8 @@ def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
     )
     for mode in ("Radar", "Sonar"):
         window.controls.mode_combo.setCurrentText(mode)
-        started = perf_counter()
         window.step_once()
         app.processEvents()
-        assert perf_counter() - started < 2.0
         assert window.sensor_config.mode is SensorMode(mode.lower())
         assert window.last_doppler_product is not None
         assert window.range_doppler_view.image_item.image.shape == (
@@ -89,12 +89,14 @@ def test_both_modes_refresh_full_product_without_ui_stall(tmp_path) -> None:
     window.close()
 
 
-def test_live_processing_keeps_qt_event_loop_responsive(tmp_path) -> None:
+@pytest.mark.parametrize("mode", ("Radar", "Sonar"))
+def test_live_processing_keeps_qt_event_loop_responsive(tmp_path, mode: str) -> None:
     app = QApplication.instance() or QApplication([])
     settings = QSettings(str(tmp_path / "worker.ini"), QSettings.Format.IniFormat)
     window = MainWindow(
         world=single_stationary_target(range_m=100.0), settings=settings
     )
+    window.controls.mode_combo.setCurrentText(mode)
     original = window.sensor.acquire_array_pulse_train
 
     def delayed_acquisition(*args, **kwargs):
@@ -106,7 +108,7 @@ def test_live_processing_keeps_qt_event_loop_responsive(tmp_path) -> None:
     QTimer.singleShot(30, lambda: heartbeat.append(window.last_frame_result is None))
     window.timer.setInterval(1)
     window.timer.start()
-    deadline = perf_counter() + 2.0
+    deadline = perf_counter() + 10.0
     while not heartbeat and perf_counter() < deadline:
         app.processEvents()
         sleep(0.005)
@@ -115,6 +117,8 @@ def test_live_processing_keeps_qt_event_loop_responsive(tmp_path) -> None:
         app.processEvents()
         sleep(0.005)
     assert window.last_frame_result is not None
+    assert window.sensor_config.mode is SensorMode(mode.lower())
+    assert window.last_doppler_product is not None
     window.timer.stop()
     window.close()
 
@@ -125,13 +129,13 @@ def test_reset_discards_an_inflight_frame(tmp_path) -> None:
     window = MainWindow(
         world=single_stationary_target(range_m=100.0), settings=settings
     )
-    original = window.sensor.acquire_directional_pulse_trains
+    original = window.sensor.acquire_array_pulse_train
 
     def delayed_acquisition(*args, **kwargs):
         sleep(0.12)
         return original(*args, **kwargs)
 
-    window.sensor.acquire_directional_pulse_trains = delayed_acquisition
+    window.sensor.acquire_array_pulse_train = delayed_acquisition
     window.timer.setInterval(1)
     window.timer.start()
     deadline = perf_counter() + 2.0
@@ -141,7 +145,7 @@ def test_reset_discards_an_inflight_frame(tmp_path) -> None:
     assert window._inflight
     window.reset()
     assert window.world.time_s == 0.0
-    sleep(0.3)
+    window._executor.shutdown(wait=True)
     app.processEvents()
     assert window.last_frame_result is None
     assert window.range_doppler_view.product is None

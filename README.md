@@ -54,6 +54,8 @@ use the composite array path; the legacy directional API remains for compatibili
 - FFT matched filtering, range profiles, fixed thresholds, and square-law CA-CFAR
 - Coherent pulse trains, Doppler spectra, and radial-velocity estimation
 - Mahalanobis-gated association and constant-velocity Kalman tracking
+- Signal-derived range-sidelobe and angular-noise rejection; range-aware
+  bearing uncertainty for stable array-track association
 - Tentative, confirmed, coasting, and deleted track lifecycle with stable IDs
 - Dockable PPI, sensor/scenario controls, track table, signal products,
   Range-Doppler heatmap, inspector, and performance diagnostics
@@ -65,6 +67,7 @@ use the composite array path; the legacy directional API remains for compatibili
 - Persistent layout, dark/light theme, PPI focus mode, and processing timings
 - Run, pause, step, reset, Radar/Sonar, timestep, seed, noise, waveform, and
   scenario-preset controls
+- Forward-observable Crossing preset with two sustained Radar tracks
 - Scenario JSON save/load plus replayable detection/track JSON and CSV export
 - Versioned scenario and frame JSON with receiver pose and platform trajectory;
   legacy v1 files remain readable

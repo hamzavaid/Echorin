@@ -77,6 +77,12 @@ The v1.2 Range-Angle dock consumes only the beamformed product. Range CFAR
 selects candidate bins; angular peaks in Bartlett power supply bearings to the
 existing tracker. The older directional-frame API remains callable for
 compatibility but is not used by the production frame controller.
+The production frame pipeline now applies a known-waveform residual sidelobe
+filter after range CFAR and a noise-calibrated angular threshold after
+beamforming. Both operate only on sampled signal products. Array-enabled
+tracking propagates range/bearing measurement uncertainty into world Cartesian
+covariance for gating, correction and track initialization; legacy tracker
+callers retain their fixed-variance path.
 
 ## v1.3 moving-platform boundary
 

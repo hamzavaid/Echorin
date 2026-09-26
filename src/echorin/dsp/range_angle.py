@@ -68,19 +68,33 @@ def angle_detections(
     product: RangeAngleProduct,
     *,
     relative_peak_height: float = 0.5,
+    angular_false_alarm_probability: float = 1e-3,
 ) -> tuple[Detection, ...]:
-    """Locate separate angular maxima at CFAR accepted range bins."""
+    """Locate significant angular maxima at CFAR accepted range bins.
+
+    The Bartlett power of circular complex Gaussian receiver noise is
+    exponential. Its robust median estimates the exponential scale; a
+    Bonferroni threshold controls the chance that any scan angle produces a
+    noise-only peak. Range CFAR remains the first-stage detector.
+    """
     if not 0 < relative_peak_height <= 1:
         raise ValueError("relative_peak_height must lie in (0, 1]")
+    if not 0 < angular_false_alarm_probability < 1:
+        raise ValueError("angular false alarm probability must lie in (0, 1)")
+    noise_power = float(np.median(product.power)) / np.log(2.0)
+    noise_threshold = -noise_power * np.log(
+        angular_false_alarm_probability / len(product.bearings_rad)
+    )
     output: list[Detection] = []
     for detection in range_detections:
         row = product.power[:, detection.source_bin]
-        if not np.any(row > 0):
+        if not np.any(row > noise_threshold):
             continue
-        peaks, _ = find_peaks(row, height=float(row.max()) * relative_peak_height)
-        if row[0] >= row[1] and row[0] >= row.max() * relative_peak_height:
+        peak_threshold = max(float(row.max()) * relative_peak_height, noise_threshold)
+        peaks, _ = find_peaks(row, height=peak_threshold)
+        if row[0] >= row[1] and row[0] >= peak_threshold:
             peaks = np.r_[0, peaks]
-        if row[-1] >= row[-2] and row[-1] >= row.max() * relative_peak_height:
+        if row[-1] >= row[-2] and row[-1] >= peak_threshold:
             peaks = np.r_[peaks, len(row) - 1]
         for angle_bin in peaks:
             output.append(

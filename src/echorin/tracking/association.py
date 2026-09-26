@@ -25,6 +25,8 @@ def associate_nearest_neighbor(
     measurements_m: ArrayLike,
     measurement_variance_m2: float,
     gate_threshold: float,
+    *,
+    measurement_covariances_m2: ArrayLike | None = None,
 ) -> AssociationResult:
     """Greedily assign globally sorted Mahalanobis distances within a gate."""
     measurements = np.asarray(measurements_m, dtype=np.float64)
@@ -37,11 +39,28 @@ def associate_nearest_neighbor(
     if gate_threshold <= 0.0:
         raise ValueError("gate_threshold must be positive")
 
+    covariances = None
+    if measurement_covariances_m2 is not None:
+        covariances = np.asarray(measurement_covariances_m2, dtype=np.float64)
+        if covariances.shape != (len(measurements), 2, 2):
+            raise ValueError("measurement covariances must have shape (n, 2, 2)")
+        if not np.all(np.isfinite(covariances)):
+            raise ValueError("measurement covariances must be finite")
+        if not np.allclose(covariances, covariances.transpose(0, 2, 1)) or np.any(
+            np.linalg.eigvalsh(covariances) <= 0.0
+        ):
+            raise ValueError("measurement covariances must be positive definite")
+
     candidates: list[tuple[float, int, int]] = []
-    measurement_covariance = np.eye(2) * measurement_variance_m2
+    fixed_covariance = np.eye(2) * measurement_variance_m2
     for track_index, track in enumerate(tracks):
-        innovation_covariance = track.covariance[:2, :2] + measurement_covariance
         for measurement_index, measurement in enumerate(measurements):
+            measurement_covariance = (
+                fixed_covariance
+                if covariances is None
+                else covariances[measurement_index]
+            )
+            innovation_covariance = track.covariance[:2, :2] + measurement_covariance
             residual = measurement - track.state[:2]
             distance_squared = float(
                 residual @ np.linalg.solve(innovation_covariance, residual)

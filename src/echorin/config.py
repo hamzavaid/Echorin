@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import ceil, isfinite
+from math import asin, ceil, isfinite, pi
 from typing import Any
 
 SPEED_OF_LIGHT_MPS = 299_792_458.0
@@ -57,6 +57,19 @@ class ArrayConfig:
             raise ValueError("array spacing exceeds half wavelength")
         if not isfinite(self.orientation_rad):
             raise ValueError("array orientation must be finite")
+
+    @property
+    def nominal_bearing_std_rad(self) -> float:
+        """Conservative one-sigma bearing scale from ULA mainlobe width.
+
+        The approximate broadside full width is ``asin(0.886 / aperture)``.
+        One sixth of that width represents a nominal localization uncertainty;
+        a one-degree floor covers the current angle-grid quantization. This is
+        a tracking noise model, not a claimed calibrated DOA accuracy.
+        """
+        aperture_wavelengths = self.element_count * self.spacing_wavelengths
+        beamwidth = asin(min(1.0, 0.886 / aperture_wavelengths))
+        return max(pi / 180.0, beamwidth / 6.0)
 
 
 @dataclass(frozen=True, slots=True)

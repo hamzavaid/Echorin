@@ -25,6 +25,7 @@ class TrackerConfig:
     process_acceleration_std_mps2: float = 2.0
     gate_threshold: float = 9.21
     maximum_history: int = 100
+    bearing_std_rad: float | None = None
 
     def __post_init__(self) -> None:
         if self.confirm_hits < 1:
@@ -33,6 +34,10 @@ class TrackerConfig:
             raise ValueError("max_missed_updates must be nonnegative")
         if self.measurement_std_m <= 0.0:
             raise ValueError("measurement_std_m must be positive")
+        if self.bearing_std_rad is not None and (
+            not np.isfinite(self.bearing_std_rad) or self.bearing_std_rad <= 0.0
+        ):
+            raise ValueError("bearing_std_rad must be finite and positive")
         if self.initial_velocity_std_mps <= 0.0:
             raise ValueError("initial_velocity_std_mps must be positive")
         if self.process_acceleration_std_mps2 < 0.0:
@@ -48,6 +53,26 @@ class TrackerConfig:
 def detection_to_cartesian(detection: Detection) -> NDArray[np.float64]:
     """Convert one finite sensor polar measurement into Cartesian coordinates."""
     return np.asarray(detection.world_position_m, dtype=np.float64)
+
+
+def measurement_covariance_for_detection(
+    detection: Detection,
+    range_std_m: float,
+    bearing_std_rad: float,
+) -> NDArray[np.float64]:
+    """Propagate polar range/bearing uncertainty into world Cartesian axes."""
+    if range_std_m <= 0.0 or bearing_std_rad <= 0.0:
+        raise ValueError("measurement standard deviations must be positive")
+    heading = (
+        detection.sensor_pose.heading_rad if detection.sensor_pose is not None else 0.0
+    )
+    bearing = detection.bearing_rad + heading
+    radial = np.array([np.cos(bearing), np.sin(bearing)])
+    transverse = np.array([-radial[1], radial[0]])
+    transverse_std_m = max(range_std_m, detection.range_m * bearing_std_rad)
+    return range_std_m**2 * np.outer(radial, radial) + transverse_std_m**2 * np.outer(
+        transverse, transverse
+    )
 
 
 class MultiTargetTracker:
@@ -86,6 +111,21 @@ class MultiTargetTracker:
             [detection_to_cartesian(detection) for detection in valid_detections],
             dtype=np.float64,
         ).reshape((-1, 2))
+        measurement_covariances = (
+            np.asarray(
+                [
+                    measurement_covariance_for_detection(
+                        detection,
+                        self.config.measurement_std_m,
+                        self.config.bearing_std_rad,
+                    )
+                    for detection in valid_detections
+                ],
+                dtype=np.float64,
+            ).reshape((-1, 2, 2))
+            if self.config.bearing_std_rad is not None
+            else None
+        )
 
         if self._last_timestamp_s is not None:
             dt_s = timestamp_s - self._last_timestamp_s
@@ -102,11 +142,17 @@ class MultiTargetTracker:
             measurements,
             measurement_variance_m2=self.config.measurement_std_m**2,
             gate_threshold=self.config.gate_threshold,
+            measurement_covariances_m2=measurement_covariances,
         )
         for track_index, measurement_index in associations.matches:
             track = self._tracks[track_index]
             filter_ = self._filter_for(track)
-            filter_.update(measurements[measurement_index])
+            filter_.update(
+                measurements[measurement_index],
+                None
+                if measurement_covariances is None
+                else measurement_covariances[measurement_index],
+            )
             track.state = filter_.state
             track.covariance = filter_.covariance
             track.hits += 1
@@ -131,6 +177,8 @@ class MultiTargetTracker:
                 position_std_m=self.config.measurement_std_m,
                 velocity_std_mps=self.config.initial_velocity_std_mps,
             )
+            if measurement_covariances is not None:
+                track.covariance[:2, :2] = measurement_covariances[measurement_index]
             if self.config.confirm_hits == 1:
                 track.status = TrackStatus.CONFIRMED
             self._next_track_id += 1

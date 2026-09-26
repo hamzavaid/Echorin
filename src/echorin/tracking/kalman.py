@@ -108,19 +108,30 @@ class ConstantVelocityKalmanFilter:
         return self.state
 
     def innovation(
-        self, measurement_m: ArrayLike
+        self,
+        measurement_m: ArrayLike,
+        measurement_covariance_m2: ArrayLike | None = None,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Return position innovation and its covariance."""
         measurement = np.asarray(measurement_m, dtype=np.float64)
         if measurement.shape != (2,):
             raise ValueError("measurement_m must have shape (2,)")
         residual = measurement - self.state[:2]
-        innovation_covariance = self.covariance[:2, :2] + self.measurement_covariance
+        innovation_covariance = self.covariance[:2, :2] + self._measurement_covariance(
+            measurement_covariance_m2
+        )
         return residual, innovation_covariance
 
-    def update(self, measurement_m: ArrayLike) -> NDArray[np.float64]:
+    def update(
+        self,
+        measurement_m: ArrayLike,
+        measurement_covariance_m2: ArrayLike | None = None,
+    ) -> NDArray[np.float64]:
         """Correct state using a Cartesian position measurement."""
-        residual, innovation_covariance = self.innovation(measurement_m)
+        measurement_covariance = self._measurement_covariance(measurement_covariance_m2)
+        residual, innovation_covariance = self.innovation(
+            measurement_m, measurement_covariance
+        )
         measurement_matrix = np.array(
             [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float64
         )
@@ -132,7 +143,21 @@ class ConstantVelocityKalmanFilter:
         residual_transform = identity - gain @ measurement_matrix
         self.covariance = (
             residual_transform @ self.covariance @ residual_transform.T
-            + gain @ self.measurement_covariance @ gain.T
+            + gain @ measurement_covariance @ gain.T
         )
         self.covariance = (self.covariance + self.covariance.T) / 2.0
         return self.state
+
+    def _measurement_covariance(
+        self, covariance_m2: ArrayLike | None
+    ) -> NDArray[np.float64]:
+        if covariance_m2 is None:
+            return self.measurement_covariance
+        covariance = np.asarray(covariance_m2, dtype=np.float64)
+        if covariance.shape != (2, 2) or not np.all(np.isfinite(covariance)):
+            raise ValueError("measurement covariance must be a finite 2x2 matrix")
+        if not np.allclose(covariance, covariance.T) or np.any(
+            np.linalg.eigvalsh(covariance) <= 0.0
+        ):
+            raise ValueError("measurement covariance must be positive definite")
+        return covariance

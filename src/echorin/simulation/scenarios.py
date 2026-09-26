@@ -28,25 +28,31 @@ def single_stationary_target(
 
 
 def crossing_targets(seed: int = 7) -> World:
-    """Create two repeatable, slightly randomized crossing trajectories."""
+    """Create two repeatable crossings within the forward array field of view.
+
+    A linear receiver array cannot distinguish a target behind the platform
+    from its front/back mirror. Keep both preset trajectories in the visible
+    half-plane during their encounter so this demo exercises tracking, not
+    an unobservable array ambiguity.
+    """
     rng = np.random.default_rng(seed)
     jitter = rng.uniform(-100.0, 100.0, size=(2, 2))
     return World(
         targets=[
             Target(
                 "crossing-a",
-                x_m=-2_000.0 + float(jitter[0, 0]),
+                x_m=1_500.0 + float(jitter[0, 0]),
                 y_m=-600.0 + float(jitter[0, 1]),
-                vx_mps=120.0,
-                vy_mps=35.0,
+                vx_mps=100.0,
+                vy_mps=120.0,
                 reflectivity=1.0,
             ),
             Target(
                 "crossing-b",
-                x_m=2_000.0 + float(jitter[1, 0]),
-                y_m=-600.0 + float(jitter[1, 1]),
-                vx_mps=-120.0,
-                vy_mps=35.0,
+                x_m=2_300.0 + float(jitter[1, 0]),
+                y_m=600.0 + float(jitter[1, 1]),
+                vx_mps=80.0,
+                vy_mps=0.0,
                 reflectivity=0.8,
             ),
         ]

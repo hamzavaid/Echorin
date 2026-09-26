@@ -25,3 +25,14 @@ errors must fit the reported range, angular and Doppler bin tolerances. The
 fast platform speed produces an easily measurable Doppler shift in the small
 educational Radar configuration; it is not intended as a realistic vehicle.
 The benchmark uses target coordinates only at its evaluation boundary.
+
+## Crossing preset observability
+
+The Crossing preset's two seeded trajectories lie in the receiver's forward
+half-plane. Their projected paths intersect at different times, keeping both
+echoes separately observable through the demonstration. The former opposite-
+side layout placed one target behind the uniform linear array; front/back
+ambiguity made it appear at the other's bearing. The preset does not pretend
+that a linear array can resolve two targets at exactly the same range and
+bearing. Regression tests follow the default seed for 160 frames and additional
+seeds for tracker-ID continuity.

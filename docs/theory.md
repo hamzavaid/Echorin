@@ -126,6 +126,24 @@ $$
 Echorin compares profile power with $T$, retains local maxima, and exposes
 $\sqrt T$ for plotting against matched-filter magnitude.
 
+The v1.3 production detector also rejects deterministic matched-filter
+sidelobes using the *known transmitted waveform*, not target truth. A delayed
+point echo has complex range response proportional to the waveform
+autocorrelation. Starting with the strongest CFAR peak, Echorin subtracts that
+point-spread response from a working residual and keeps each weaker candidate
+only if its residual amplitude still exceeds its local CFAR threshold. This
+does not impose a blanket range-separation rule: a second physical echo within
+the pulse extent can survive in the residual.
+
+At every surviving range bin, Bartlett angular peaks must exceed both half of
+the strongest angle power and a noise-only threshold. For exponential complex-
+Gaussian Bartlett noise with median power $m$, the estimated scale is
+$\mu=m/\ln 2$. Across $N_\theta$ scan angles, the conservative threshold is
+$T_\theta=-\mu\ln(P_{FA,\theta}/N_\theta)$. This prevents a single noise-only
+range candidate from spawning several bearing detections. The two-stage
+threshold trades some weak-target sensitivity for a bounded angular false-
+alarm rate; no guarantee of resolving coincident targets is implied.
+
 ## Doppler processing
 
 A coherent pulse interval samples target phase at the PRF. Echorin applies an
@@ -178,6 +196,20 @@ The process covariance is the discretized white-acceleration model. Position
 updates use a linear measurement matrix and a Joseph-form covariance correction
 for numerical stability. Greedy nearest-neighbor association sorts all gated
 Mahalanobis distances and enforces one detection and one track per match.
+For array-derived measurements, the tracker rotates radial unit vector
+$\mathbf u$ and transverse unit vector $\mathbf t$ into world coordinates and
+uses range-dependent position covariance
+
+$$
+\mathbf R_m=\sigma_r^2\mathbf u\mathbf u^T+
+\max(\sigma_r,r\sigma_\theta)^2\mathbf t\mathbf t^T.
+$$
+
+Here $\sigma_r$ is the configured range-position scale and $\sigma_\theta$
+is a conservative aperture-derived bearing scale with a one-degree floor.
+The same covariance is used for association, the Kalman correction, and new
+track initialization. Legacy tracker calls without a bearing scale retain
+their previous isotropic Cartesian covariance.
 
 Unmatched detections create tentative tracks. Repeated support confirms them;
 temporary misses produce coasting tracks; excessive misses delete them. Track

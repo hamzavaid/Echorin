@@ -97,7 +97,8 @@ class MainWindow(QMainWindow):
                     5.0,
                     self.sensor_config.propagation_speed_mps
                     / (2.0 * self.sensor_config.sample_rate_hz),
-                )
+                ),
+                bearing_std_rad=self.world.array_config.nominal_bearing_std_rad,
             )
         )
         self.last_detections: tuple[Detection, ...] = ()
@@ -586,7 +587,8 @@ class MainWindow(QMainWindow):
                     1.0,
                     self.sensor_config.propagation_speed_mps
                     / (2.0 * self.sensor_config.sample_rate_hz),
-                )
+                ),
+                bearing_std_rad=self.world.array_config.nominal_bearing_std_rad,
             )
         )
         self.doppler_pulse_count = 32 if mode is SensorMode.RADAR else 16
@@ -668,7 +670,12 @@ class MainWindow(QMainWindow):
             ),
         )
         self.sensor.waveform_kind = waveform_kind
-        self.tracker = MultiTargetTracker(self.tracker.config)
+        self.tracker = MultiTargetTracker(
+            replace(
+                self.tracker.config,
+                bearing_std_rad=self.world.array_config.nominal_bearing_std_rad,
+            )
+        )
         self.last_detections = ()
         self.last_tracks = ()
 

@@ -21,6 +21,7 @@ from echorin.dsp.range_angle import (
     range_angle_product,
 )
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
+from echorin.dsp.sidelobes import suppress_matched_filter_sidelobes
 from echorin.models.detection import Detection
 from echorin.models.track import Track
 from echorin.sensors.base import ReflectiveTarget, SensorFrame
@@ -68,6 +69,9 @@ def process_frame(
     )
     cfar_result = cfar_detector.detect(
         range_profile, timestamp_s=timestamp_s, bearing_rad=float("nan")
+    )
+    cfar_result = suppress_matched_filter_sidelobes(
+        cfar_result, range_profile, transmitted
     )
     reference_element = array_frame.array_geometry.reference_element
     combined_responses = signal_processor.array_range_responses(

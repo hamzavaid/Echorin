@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import ceil
+from math import ceil, isfinite
 from typing import Any
 
 SPEED_OF_LIGHT_MPS = 299_792_458.0
@@ -37,6 +37,26 @@ class NoiseConfig:
     def __post_init__(self) -> None:
         if self.standard_deviation < 0.0:
             raise ValueError("standard_deviation must be nonnegative")
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayConfig:
+    """Receiver ULA size and spacing expressed in carrier wavelengths."""
+
+    element_count: int = 8
+    spacing_wavelengths: float = 0.5
+    orientation_rad: float = 0.0
+    allow_ambiguous_spacing: bool = False
+
+    def __post_init__(self) -> None:
+        if self.element_count < 2:
+            raise ValueError("element_count must be at least two")
+        if not isfinite(self.spacing_wavelengths) or self.spacing_wavelengths <= 0:
+            raise ValueError("spacing_wavelengths must be finite and positive")
+        if self.spacing_wavelengths > 0.5 and not self.allow_ambiguous_spacing:
+            raise ValueError("array spacing exceeds half wavelength")
+        if not isfinite(self.orientation_rad):
+            raise ValueError("array orientation must be finite")
 
 
 @dataclass(frozen=True, slots=True)

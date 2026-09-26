@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from echorin.gui.visualization_data import track_overlay
 from echorin.models.detection import Detection
+from echorin.models.geometry import SensorPose
 from echorin.models.track import Track, TrackStatus
 from echorin.simulation.target import Target
 
@@ -55,8 +56,9 @@ class PpiView(QWidget):
             ("Coasting", self.STATUS_COLORS[TrackStatus.COASTING], "o"),
             ("Ground truth", "#ffc547", "o"),
         ):
-            self.plot.plot([], [], pen=None, symbol=symbol,
-                           symbolBrush=color, name=title)
+            self.plot.plot(
+                [], [], pen=None, symbol=symbol, symbolBrush=color, name=title
+            )
         layout.addWidget(self.plot)
 
         self.range_rings: list[pg.PlotDataItem] = []
@@ -72,6 +74,14 @@ class PpiView(QWidget):
             brush=pg.mkBrush(255, 190, 0, 140),
         )
         self.plot.addItem(self.sensor_item)
+        self.platform_trail_item = self.plot.plot(
+            pen=pg.mkPen("c", width=1.5), name="Platform trajectory"
+        )
+        self.platform_heading_item = self.plot.plot(pen=pg.mkPen("c", width=2))
+        self.array_fov_items = (
+            self.plot.plot(pen=pg.mkPen((0, 180, 220, 100), width=1)),
+            self.plot.plot(pen=pg.mkPen((0, 180, 220, 100), width=1)),
+        )
         self.plot.addItem(self.target_item)
         self.detection_item = pg.ScatterPlotItem(
             symbol="x", size=11, pen=pg.mkPen("r", width=2)
@@ -114,6 +124,35 @@ class PpiView(QWidget):
             data=[target.target_id for target in target_list],
         )
 
+    def set_platform(
+        self,
+        pose: SensorPose,
+        history_m: Iterable[tuple[float, float]],
+        array_orientation_rad: float = 0.0,
+    ) -> None:
+        """Draw the public receiver trajectory, heading, and ULA scan sector."""
+        self.sensor_item.setData(x=[pose.x_m], y=[pose.y_m])
+        history = np.asarray(tuple(history_m), dtype=np.float64).reshape(-1, 2)
+        self.platform_trail_item.setData(history[:, 0], history[:, 1])
+        length = self.max_range_m * 0.15
+        self.platform_heading_item.setData(
+            [pose.x_m, pose.x_m + length * np.cos(pose.heading_rad)],
+            [pose.y_m, pose.y_m + length * np.sin(pose.heading_rad)],
+        )
+        for sign, item in zip((-1, 1), self.array_fov_items, strict=True):
+            angle = pose.heading_rad + array_orientation_rad + sign * np.pi / 2
+            item.setData(
+                [pose.x_m, pose.x_m + length * np.cos(angle)],
+                [pose.y_m, pose.y_m + length * np.sin(angle)],
+            )
+
+    def set_platform_trail_visible(self, visible: bool) -> None:
+        self.platform_trail_item.setVisible(visible)
+
+    def set_array_fov_visible(self, visible: bool) -> None:
+        for item in self.array_fov_items:
+            item.setVisible(visible)
+
     def set_ground_truth_visible(self, visible: bool) -> None:
         """Show or hide the ground-truth-only target layer."""
         self.target_item.setVisible(visible)
@@ -151,31 +190,37 @@ class PpiView(QWidget):
             if np.isfinite(detection.range_m) and np.isfinite(detection.bearing_rad)
         ]
         self.detection_item.setData(
-            x=[d.range_m * np.cos(d.bearing_rad) for _, d in finite],
-            y=[d.range_m * np.sin(d.bearing_rad) for _, d in finite],
+            x=[d.world_position_m[0] for _, d in finite],
+            y=[d.world_position_m[1] for _, d in finite],
             data=[index for index, _ in finite],
         )
 
     def set_tracks(self, tracks: Iterable[Track]) -> None:
         """Draw active track states and bounded histories."""
         active = list(tracks)
-        self.track_item.setData(spots=[
-            {
-                "pos": (track.x_m, track.y_m),
-                "data": track.track_id,
-                "symbol": "o" if track.status is not TrackStatus.COASTING else "s",
-                "brush": pg.mkBrush(self.STATUS_COLORS.get(track.status, "#999999")),
-                "pen": pg.mkPen("w", width=1),
-                "size": 12,
-            }
-            for track in active
-        ])
+        self.track_item.setData(
+            spots=[
+                {
+                    "pos": (track.x_m, track.y_m),
+                    "data": track.track_id,
+                    "symbol": "o" if track.status is not TrackStatus.COASTING else "s",
+                    "brush": pg.mkBrush(
+                        self.STATUS_COLORS.get(track.status, "#999999")
+                    ),
+                    "pen": pg.mkPen("w", width=1),
+                    "size": 12,
+                }
+                for track in active
+            ]
+        )
         active_ids = {track.track_id for track in active}
         for stale_id in set(self.track_history_items) - active_ids:
             self.plot.removeItem(self.track_history_items.pop(stale_id))
         for collection in (
-            self.track_label_items, self.velocity_items,
-            self.velocity_arrow_items, self.uncertainty_items,
+            self.track_label_items,
+            self.velocity_items,
+            self.velocity_arrow_items,
+            self.uncertainty_items,
         ):
             for stale_id in set(collection) - active_ids:
                 self.plot.removeItem(collection.pop(stale_id))
@@ -215,13 +260,14 @@ class PpiView(QWidget):
                 self.plot.addItem(arrow)
                 self.velocity_arrow_items[track.track_id] = arrow
             arrow.setStyle(
-                angle=180.0 - float(np.degrees(np.arctan2(track.vy_mps,
-                                                           track.vx_mps))),
-                brush=pg.mkBrush(color), pen=pg.mkPen(color),
+                angle=180.0 - float(np.degrees(np.arctan2(track.vy_mps, track.vx_mps))),
+                brush=pg.mkBrush(color),
+                pen=pg.mkPen(color),
             )
             arrow.setPos(*overlay.velocity_end_m)
             arrow.setVisible(
-                self._tracks_visible and self._vectors_visible
+                self._tracks_visible
+                and self._vectors_visible
                 and overlay.speed_mps > 0.0
             )
             ellipse_item = self.uncertainty_items.get(track.track_id)
@@ -230,9 +276,7 @@ class PpiView(QWidget):
                 self.uncertainty_items[track.track_id] = ellipse_item
             ellipse_item.setPen(pg.mkPen(color, width=1))
             ellipse_item.setData(overlay.ellipse.x_m, overlay.ellipse.y_m)
-            ellipse_item.setVisible(
-                self._tracks_visible and self._uncertainty_visible
-            )
+            ellipse_item.setVisible(self._tracks_visible and self._uncertainty_visible)
 
     def set_detections_visible(self, visible: bool) -> None:
         self.detection_item.setVisible(visible)
@@ -256,8 +300,10 @@ class PpiView(QWidget):
 
     def set_vectors_visible(self, visible: bool) -> None:
         self._vectors_visible = visible
-        vector_items = (*self.velocity_items.values(),
-                        *self.velocity_arrow_items.values())
+        vector_items = (
+            *self.velocity_items.values(),
+            *self.velocity_arrow_items.values(),
+        )
         for item in vector_items:
             item.setVisible(visible and self._tracks_visible)
 

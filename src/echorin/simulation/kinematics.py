@@ -20,7 +20,7 @@ class CartesianTarget(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class TargetGeometry:
-    """Exact simulation geometry relative to a stationary sensor."""
+    """Exact simulation geometry relative to a moving receiver."""
 
     range_m: float
     bearing_rad: float
@@ -37,7 +37,10 @@ def relative_geometry(sensor: SensorPose, target: CartesianTarget) -> TargetGeom
     dy = target.y_m - sensor.y_m
     range_m = hypot(dx, dy)
     radial_velocity = (
-        (dx * target.vx_mps + dy * target.vy_mps) / range_m if range_m > 0.0 else 0.0
+        (dx * (target.vx_mps - sensor.vx_mps) + dy * (target.vy_mps - sensor.vy_mps))
+        / range_m
+        if range_m > 0.0
+        else 0.0
     )
     return TargetGeometry(
         range_m=range_m,

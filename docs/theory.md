@@ -40,6 +40,38 @@ angular maxima above half the strongest Bartlett peak at each range supply
 bearing detections. The ULA scan covers -90 to +90 degrees and cannot resolve
 front/back ambiguity; this is a physical limitation of the linear geometry.
 
+## Moving receiver geometry (v1.3)
+
+The platform state contains world position $\mathbf p$, velocity $\mathbf v$,
+acceleration, heading $\psi$, and yaw rate $\omega$. A sensor mounted at
+body-frame offset $\mathbf m$ and heading offset $\beta$ has pose
+
+$$
+\mathbf p_s=\mathbf p+R(\psi)\mathbf m,\qquad
+\psi_s=\psi+\beta,\qquad
+\mathbf v_s=\mathbf v+\omega J R(\psi)\mathbf m,
+$$
+
+where $R$ is a two-dimensional rotation and
+$J=\begin{bmatrix}0&-1\\1&0\end{bmatrix}$. For target velocity $\mathbf v_t$
+and line-of-sight unit vector $\hat{\mathbf r}$ from receiver to target, the
+measured range rate is
+
+$$
+\dot R=(\mathbf v_t-\mathbf v_s)\cdot\hat{\mathbf r}.
+$$
+
+The existing monostatic Doppler convention uses $f_D=2\dot R/\lambda$:
+approach is negative Doppler and negative range rate. A receiver-local
+array bearing $\theta$ becomes world bearing $\psi_s+\theta$, and the
+Cartesian measurement is
+$\mathbf p_s+R(\psi_s)(r\cos\theta,r\sin\theta)^T$.
+Tracking consumes this timestamped sensor-derived measurement, not target
+truth. Constant-velocity, constant-acceleration and coordinated-turn updates
+are analytic in time; waypoints interpolate between time-stamped positions.
+The sensor pose is fixed during each coherent pulse train (stop-and-hop), so
+intra-train range migration and rotational motion are not modeled.
+
 ## Geometry and two-way propagation
 
 For sensor position $(x_s,y_s)$ and target position $(x_t,y_t)$, Echorin

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from echorin.config import ArrayConfig, SensorConfig
+
 
 @dataclass(frozen=True, slots=True)
 class ArrayGeometry:
@@ -72,4 +74,17 @@ def uniform_linear_array(
         carrier_frequency_hz=carrier_frequency_hz,
         propagation_speed_mps=propagation_speed_mps,
         allow_ambiguous_spacing=allow_ambiguous_spacing,
+    )
+
+
+def geometry_for_config(array: ArrayConfig, sensor: SensorConfig) -> ArrayGeometry:
+    """Scale a wavelength-relative array for the selected Radar/Sonar medium."""
+    wavelength = sensor.propagation_speed_mps / sensor.carrier_frequency_hz
+    return uniform_linear_array(
+        array.element_count,
+        array.spacing_wavelengths * wavelength,
+        orientation_rad=array.orientation_rad,
+        carrier_frequency_hz=sensor.carrier_frequency_hz,
+        propagation_speed_mps=sensor.propagation_speed_mps,
+        allow_ambiguous_spacing=array.allow_ambiguous_spacing,
     )

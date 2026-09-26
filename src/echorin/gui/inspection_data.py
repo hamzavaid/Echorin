@@ -69,12 +69,12 @@ class InspectionModel:
                 else "Unavailable"
             ),
             "Cartesian X": (
-                f"{detection.range_m * np.cos(bearing):.3f} m"
+                f"{detection.world_position_m[0]:.3f} m"
                 if finite_bearing
                 else "Unavailable"
             ),
             "Cartesian Y": (
-                f"{detection.range_m * np.sin(bearing):.3f} m"
+                f"{detection.world_position_m[1]:.3f} m"
                 if finite_bearing
                 else "Unavailable"
             ),

@@ -20,7 +20,13 @@ from PySide6.QtWidgets import (
 )
 
 from echorin.application.frame_pipeline import FrameComputation, process_frame
-from echorin.config import NoiseConfig, SensorConfig, SensorMode, SimulationConfig
+from echorin.config import (
+    ArrayConfig,
+    NoiseConfig,
+    SensorConfig,
+    SensorMode,
+    SimulationConfig,
+)
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
 from echorin.dsp.doppler import DopplerProduct
 from echorin.dsp.range_angle import RangeAngleProduct
@@ -28,19 +34,23 @@ from echorin.dsp.range_processing import RangeProfile, SignalProcessor
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.heatmaps import RangeDopplerView
 from echorin.gui.inspectors import MeasurementTrackInspector
+from echorin.gui.platform_controls import PlatformControls
 from echorin.gui.ppi_view import PpiView
 from echorin.gui.range_angle_view import RangeAngleView
 from echorin.gui.signal_plots import SignalPlots
 from echorin.gui.visualization_data import RangeDopplerCell
 from echorin.models.detection import Detection
 from echorin.models.frame import FrameResult
+from echorin.models.platform import MountTransform, PlatformState
 from echorin.models.track import Track
+from echorin.sensors.array import geometry_for_config
 from echorin.sensors.base import SensorFrame
 from echorin.sensors.echo import SyntheticMonostaticSensor
 from echorin.sensors.factory import create_sensor
 from echorin.signals.waveform import WaveformKind
 from echorin.simulation.scenarios import crossing_targets, single_stationary_target
 from echorin.simulation.target import Target
+from echorin.simulation.trajectories import PlatformTrajectory
 from echorin.simulation.world import World
 from echorin.tracking.tracker import MultiTargetTracker, TrackerConfig
 
@@ -65,6 +75,9 @@ class MainWindow(QMainWindow):
             self.sensor_config,
             self.world.sensor_pose,
             random_seed=self.simulation_config.random_seed,
+            array_geometry=geometry_for_config(
+                self.world.array_config, self.sensor_config
+            ),
         )
         self.signal_processor = SignalProcessor(self.sensor_config)
         self.cfar_detector = CaCfarDetector(
@@ -116,40 +129,64 @@ class MainWindow(QMainWindow):
         )
         self.controls.mode_combo.setCurrentText(self.sensor_config.mode.value.title())
         self.target_editor = TargetEditor()
+        self.platform_controls = PlatformControls()
+        self.platform_controls.set_from_world(self.world)
         self.track_table = TrackTable()
         self.signal_plots = SignalPlots()
         self.controls_dock = self._add_dock(
-            "Sensor / Simulation", "controls", self.controls,
+            "Sensor / Simulation",
+            "controls",
+            self.controls,
             Qt.DockWidgetArea.LeftDockWidgetArea,
         )
         self.scenario_dock = self._add_dock(
-            "Scenario", "scenario", self.target_editor,
+            "Scenario",
+            "scenario",
+            self.target_editor,
             Qt.DockWidgetArea.LeftDockWidgetArea,
         )
+        self.platform_dock = self._add_dock(
+            "Sensor Platform",
+            "platform",
+            self.platform_controls,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.scenario_dock, self.platform_dock)
+        self.scenario_dock.raise_()
         self.tracks_dock = self._add_dock(
-            "Tracks", "tracks", self.track_table,
+            "Tracks",
+            "tracks",
+            self.track_table,
             Qt.DockWidgetArea.RightDockWidgetArea,
         )
         self.signal_dock = self._add_dock(
-            "Signal Products", "signals", self.signal_plots,
+            "Signal Products",
+            "signals",
+            self.signal_plots,
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
         self.range_doppler_view = RangeDopplerView()
         self.range_doppler_dock = self._add_dock(
-            "Range-Doppler", "range_doppler", self.range_doppler_view,
+            "Range-Doppler",
+            "range_doppler",
+            self.range_doppler_view,
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
         self.tabifyDockWidget(self.signal_dock, self.range_doppler_dock)
         self.range_angle_view = RangeAngleView()
         self.range_angle_dock = self._add_dock(
-            "Range-Angle", "range_angle", self.range_angle_view,
+            "Range-Angle",
+            "range_angle",
+            self.range_angle_view,
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
         self.tabifyDockWidget(self.signal_dock, self.range_angle_dock)
         self.signal_dock.raise_()
         self.inspector = MeasurementTrackInspector()
         self.inspector_dock = self._add_dock(
-            "Measurement / Track Inspector", "inspector", self.inspector,
+            "Measurement / Track Inspector",
+            "inspector",
+            self.inspector,
             Qt.DockWidgetArea.RightDockWidgetArea,
         )
         self.diagnostics = QLabel("No frame processed yet")
@@ -159,21 +196,21 @@ class MainWindow(QMainWindow):
         )
         self.diagnostics.setMargin(10)
         self.diagnostics_dock = self._add_dock(
-            "Performance / Diagnostics", "diagnostics", self.diagnostics,
+            "Performance / Diagnostics",
+            "diagnostics",
+            self.diagnostics,
             Qt.DockWidgetArea.RightDockWidgetArea,
         )
         self.resizeDocks(
             [self.tracks_dock, self.inspector_dock, self.diagnostics_dock],
-            [130, 250, 150], Qt.Orientation.Vertical,
+            [130, 250, 150],
+            Qt.Orientation.Vertical,
         )
+        self.resizeDocks([self.signal_dock], [380], Qt.Orientation.Vertical)
+        self.resizeDocks([self.inspector_dock], [300], Qt.Orientation.Horizontal)
         self.resizeDocks(
-            [self.signal_dock], [380], Qt.Orientation.Vertical
-        )
-        self.resizeDocks(
-            [self.inspector_dock], [300], Qt.Orientation.Horizontal
-        )
-        self.resizeDocks(
-            [self.controls_dock, self.scenario_dock], [390, 280],
+            [self.controls_dock, self.scenario_dock],
+            [390, 280],
             Qt.Orientation.Vertical,
         )
         saved_geometry = self.settings.value("workspace/geometry")
@@ -195,8 +232,9 @@ class MainWindow(QMainWindow):
         self.theme_menu = self.view_menu.addMenu("Theme")
         for name in ("dark", "light"):
             action = self.theme_menu.addAction(name.title())
-            action.triggered.connect(lambda checked=False, choice=name:
-                                     self.apply_theme(choice))
+            action.triggered.connect(
+                lambda checked=False, choice=name: self.apply_theme(choice)
+            )
         self.apply_theme(str(self.settings.value("workspace/theme", "dark")))
 
         self.timer = QTimer(self)
@@ -217,9 +255,7 @@ class MainWindow(QMainWindow):
         self.controls.trails_toggled.connect(self.ppi_view.set_trails_visible)
         self.controls.labels_toggled.connect(self.ppi_view.set_labels_visible)
         self.controls.vectors_toggled.connect(self.ppi_view.set_vectors_visible)
-        self.controls.uncertainty_toggled.connect(
-            self.ppi_view.set_uncertainty_visible
-        )
+        self.controls.uncertainty_toggled.connect(self.ppi_view.set_uncertainty_visible)
         self.controls.mode_changed.connect(self._set_sensor_mode)
         self.controls.dt_changed.connect(self._set_dt)
         self.controls.seed_changed.connect(self._set_seed)
@@ -229,6 +265,13 @@ class MainWindow(QMainWindow):
         self.target_editor.target_added.connect(self._add_target)
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
+        self.platform_controls.platform_changed.connect(self._set_platform)
+        self.platform_controls.trail_toggled.connect(
+            self.ppi_view.set_platform_trail_visible
+        )
+        self.platform_controls.field_of_view_toggled.connect(
+            self.ppi_view.set_array_fov_visible
+        )
         self.ppi_view.track_selected.connect(self.inspector.select_track)
         self.ppi_view.detection_selected.connect(self.inspector.select_detection)
         self.track_table.track_selected.connect(self.inspector.select_track)
@@ -310,8 +353,10 @@ class MainWindow(QMainWindow):
             f"selection-color: {foreground}; }}"
         )
         for plot in (
-            self.ppi_view.plot, self.signal_plots.range_plot,
-            self.signal_plots.doppler_plot, self.range_doppler_view.plot,
+            self.ppi_view.plot,
+            self.signal_plots.range_plot,
+            self.signal_plots.doppler_plot,
+            self.range_doppler_view.plot,
             self.range_angle_view.plot,
         ):
             plot.setBackground(background)
@@ -327,8 +372,13 @@ class MainWindow(QMainWindow):
             return
         targets, timestamp_s, simulation_s, started = self._prepare_step()
         result = process_frame(
-            targets, timestamp_s, self.sensor, self.signal_processor,
-            self.cfar_detector, self.tracker, self.doppler_pulse_count,
+            targets,
+            timestamp_s,
+            self.sensor,
+            self.signal_processor,
+            self.cfar_detector,
+            self.tracker,
+            self.doppler_pulse_count,
         )
         self._present_frame(result, simulation_s, started)
 
@@ -336,6 +386,7 @@ class MainWindow(QMainWindow):
         """Advance world time on the UI thread and snapshot target states."""
         started = perf_counter()
         self.world.advance(self.simulation_config.dt_s)
+        self.sensor.pose = self.world.sensor_pose
         targets = tuple(deepcopy(target) for target in self.world.targets)
         return targets, self.world.time_s, perf_counter() - started, started
 
@@ -347,8 +398,13 @@ class MainWindow(QMainWindow):
         self._inflight = True
         generation = self._frame_generation
         future = self._executor.submit(
-            process_frame, targets, timestamp_s, self.sensor,
-            self.signal_processor, self.cfar_detector, self.tracker,
+            process_frame,
+            targets,
+            timestamp_s,
+            self.sensor,
+            self.signal_processor,
+            self.cfar_detector,
+            self.tracker,
             self.doppler_pulse_count,
         )
         future.add_done_callback(
@@ -358,8 +414,11 @@ class MainWindow(QMainWindow):
         )
 
     def _finish_async_step(
-        self, generation: int, future: Future[FrameComputation],
-        simulation_s: float, started: float,
+        self,
+        generation: int,
+        future: Future[FrameComputation],
+        simulation_s: float,
+        started: float,
     ) -> None:
         """Publish worker results only if the scenario configuration still matches."""
         if generation != self._frame_generation:
@@ -433,6 +492,8 @@ class MainWindow(QMainWindow):
             range_profile=self.last_range_profile,
             range_doppler_product=self.last_doppler_product,
             range_angle_product=self.last_range_angle_product,
+            platform_states=[deepcopy(self.world.platform_state)],
+            receiver_pose=result.range_angle_product.receiver_pose,
             detections=list(self.last_detections),
             tracks=list(self.last_tracks),
             timing_metrics_s=self.last_timing_metrics_s,
@@ -506,6 +567,9 @@ class MainWindow(QMainWindow):
             self.sensor_config,
             self.world.sensor_pose,
             random_seed=self.simulation_config.random_seed,
+            array_geometry=geometry_for_config(
+                self.world.array_config, self.sensor_config
+            ),
         )
         self.signal_processor = SignalProcessor(self.sensor_config)
         self.cfar_detector = CaCfarDetector(
@@ -543,8 +607,7 @@ class MainWindow(QMainWindow):
         self.inspector.clear()
         self.range_doppler_view.set_detections(())
         self.setWindowTitle(
-            f"ECHORIN - {self.sensor_config.mode.value.title()} "
-            "Engineering Workspace"
+            f"ECHORIN - {self.sensor_config.mode.value.title()} Engineering Workspace"
         )
 
     def _set_dt(self, dt_s: float) -> None:
@@ -587,6 +650,7 @@ class MainWindow(QMainWindow):
             )
         )
         self._rebuild_sensor_preserving_mode()
+        self.platform_controls.set_from_world(self.world)
         self.ppi_view.set_targets(self.world.targets)
         self.target_editor.set_targets(self.world.targets)
 
@@ -599,14 +663,37 @@ class MainWindow(QMainWindow):
             self.sensor_config,
             self.world.sensor_pose,
             random_seed=self.simulation_config.random_seed,
+            array_geometry=geometry_for_config(
+                self.world.array_config, self.sensor_config
+            ),
         )
         self.sensor.waveform_kind = waveform_kind
         self.tracker = MultiTargetTracker(self.tracker.config)
         self.last_detections = ()
         self.last_tracks = ()
 
+    def _set_platform(
+        self,
+        state: PlatformState,
+        trajectory: PlatformTrajectory,
+        mount: MountTransform,
+        array_config: ArrayConfig,
+    ) -> None:
+        """Apply a validated platform configuration at a fresh scenario origin."""
+        self.timer.stop()
+        self._invalidate_pending()
+        self.world.reset()
+        self.world.set_platform(state, trajectory, mount, array_config)
+        self.world.checkpoint_reset_state()
+        self.reset()
+
     def _refresh_world_views(self, update_editor: bool = True) -> None:
         self.ppi_view.set_targets(self.world.targets)
+        self.ppi_view.set_platform(
+            self.world.sensor_pose,
+            self.world.platform_history,
+            self.world.array_config.orientation_rad,
+        )
         if update_editor:
             self.target_editor.set_targets(self.world.targets)
         self.statusBar().showMessage(

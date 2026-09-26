@@ -78,6 +78,26 @@ selects candidate bins; angular peaks in Bartlett power supply bearings to the
 existing tracker. The older directional-frame API remains callable for
 compatibility but is not used by the production frame controller.
 
+## v1.3 moving-platform boundary
+
+`World` owns a timestamped `PlatformState`, validated motion law, body-frame
+`MountTransform`, array configuration, and a bounded platform path. It advances
+the target and platform clocks together before each frame. The receiver pose
+is a rigid transform of platform position/heading; its velocity includes the
+angular-rate cross mount-offset term. Sensor synthesis uses this pose to form
+receiver-relative range rate and Doppler. A coherent frame holds the pose fixed
+under the existing stop-and-hop approximation.
+
+The array product and each detection carry the acquisition-time receiver pose.
+Detection bearings remain receiver-local; `Detection.world_position_m` is the
+single local-to-world conversion used by tracking, PPI and inspection adapters.
+Numerical modules do not import Qt and receive no target ID or truth bearing.
+`PlatformControls` edits scenario state through the main-window controller; the
+PPI gets an optional platform path/heading/FOV overlay separately from sensor
+measurements. Scenario and frame JSON use schema version 2 and readers migrate
+the earlier unversioned files. A platform pose is recorded even when a frame
+has no detections.
+
 ## Simplifying assumptions
 
 Targets are point reflectors with constant Cartesian velocity. Propagation uses

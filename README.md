@@ -1,4 +1,4 @@
-# Echorin v1.2
+# Echorin v1.3
 
 Echorin is a real-time 2D Radar and Sonar simulation application that keeps
 ground truth separate from sensing. Moving point targets produce delayed,
@@ -41,10 +41,12 @@ simulation target IDs.
 | Track ID, status, velocity, covariance overlays | Partial | Yes |
 | Measurement/track inspector, diagnostics, theme/layout memory | — | Yes |
 
-v1.2 adds an eight-element receiver array, signal-derived bearings, a
-Range-Angle heatmap, and two-target angular-resolution validation. Both Radar
-and Sonar use the composite array path; the legacy directional API remains for
-compatibility only.
+v1.2 added an eight-element receiver array, signal-derived bearings, a
+Range-Angle heatmap, and two-target angular-resolution validation. v1.3 adds
+moving sensor platforms with rigid-body receiver mounts, stationary/constant-
+velocity/constant-acceleration/coordinated-turn/waypoint motion, moving-receiver
+Doppler, a platform editor and PPI path/heading overlays. Both Radar and Sonar
+use the composite array path; the legacy directional API remains for compatibility.
 
 - Constant-velocity scenarios with deterministic seeds and editable targets
 - Radar and Sonar modes through one validated monostatic sensor abstraction
@@ -64,6 +66,8 @@ compatibility only.
 - Run, pause, step, reset, Radar/Sonar, timestep, seed, noise, waveform, and
   scenario-preset controls
 - Scenario JSON save/load plus replayable detection/track JSON and CSV export
+- Versioned scenario and frame JSON with receiver pose and platform trajectory;
+  legacy v1 files remain readable
 - Separate simulation, sensing, DSP, tracking, GUI, and total frame timings
 - Automated unit/integration/release tests using pytest
 
@@ -115,6 +119,8 @@ Generate the deterministic benchmark and optional release captures:
 
 ```bash
 python benchmarks/run_tracking_benchmark.py
+python benchmarks/run_array_benchmark.py
+python benchmarks/run_platform_benchmark.py
 python -m pip install -e ".[release]"
 python examples/capture_demo.py
 ```
@@ -125,6 +131,7 @@ python examples/capture_demo.py
 - [Architecture and package boundaries](docs/architecture.md)
 - [v1.1 release notes](docs/releases/v1.1.md)
 - [v1.2 release notes](docs/releases/v1.2.md)
+- [v1.3 release notes](docs/releases/v1.3.md)
 - [Array benchmark scenarios](docs/scenarios.md)
 - [Tracking benchmark results](benchmarks/tracking_results.json)
 

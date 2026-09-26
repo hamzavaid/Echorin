@@ -69,16 +69,22 @@ def process_frame(
     cfar_result = cfar_detector.detect(
         range_profile, timestamp_s=timestamp_s, bearing_rad=float("nan")
     )
-    responses = signal_processor.array_range_responses(array_frame.samples, transmitted)
-    combined_responses = responses[array_frame.array_geometry.reference_element]
+    reference_element = array_frame.array_geometry.reference_element
+    combined_responses = signal_processor.array_range_responses(
+        array_frame.samples[reference_element : reference_element + 1], transmitted
+    )[0]
     doppler_product = doppler_spectrum(combined_responses, sensor.config)
+    angle_responses = signal_processor.array_range_responses(
+        array_frame.samples[:, :1, :], transmitted
+    )
     range_angle = range_angle_product(
-        responses[:, :1, :],
-        signal_processor.range_axis(responses.shape[-1]),
+        angle_responses,
+        signal_processor.range_axis(angle_responses.shape[-1]),
         array_frame.array_geometry,
         sensor.config,
         np.linspace(-np.pi / 2, np.pi / 2, 181),
         timestamp_s,
+        receiver_pose=array_frame.receiver_pose,
     )
     detections = enrich_detections_with_velocity(
         angle_detections(cfar_result.detections, range_angle), doppler_product

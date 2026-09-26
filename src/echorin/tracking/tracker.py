@@ -47,13 +47,7 @@ class TrackerConfig:
 
 def detection_to_cartesian(detection: Detection) -> NDArray[np.float64]:
     """Convert one finite sensor polar measurement into Cartesian coordinates."""
-    return np.array(
-        [
-            detection.range_m * np.cos(detection.bearing_rad),
-            detection.range_m * np.sin(detection.bearing_rad),
-        ],
-        dtype=np.float64,
-    )
+    return np.asarray(detection.world_position_m, dtype=np.float64)
 
 
 class MultiTargetTracker:

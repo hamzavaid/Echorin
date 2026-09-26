@@ -11,6 +11,7 @@ from scipy.signal import find_peaks
 from echorin.config import SensorConfig
 from echorin.dsp.beamforming import steering_vectors
 from echorin.models.detection import Detection
+from echorin.models.geometry import SensorPose
 from echorin.sensors.array import ArrayGeometry
 
 
@@ -23,6 +24,7 @@ class RangeAngleProduct:
     power: NDArray[np.float64]
     timestamp_s: float
     receiver_id: str = "receiver-0"
+    receiver_pose: SensorPose | None = None
 
     def __post_init__(self) -> None:
         if self.power.shape != (len(self.bearings_rad), len(self.ranges_m)):
@@ -36,6 +38,7 @@ def range_angle_product(
     config: SensorConfig,
     bearings_rad: ArrayLike,
     timestamp_s: float,
+    receiver_pose: SensorPose | None = None,
 ) -> RangeAngleProduct:
     """Beamform composite matched-filter responses over pulse snapshots."""
     data = np.asarray(range_responses, dtype=np.complex128)
@@ -56,6 +59,7 @@ def range_angle_product(
         angles,
         np.asarray(power, dtype=np.float64),
         timestamp_s,
+        receiver_pose=receiver_pose,
     )
 
 
@@ -84,6 +88,8 @@ def angle_detections(
                     detection,
                     bearing_rad=float(product.bearings_rad[angle_bin]),
                     source_angle_bin=int(angle_bin),
+                    receiver_id=product.receiver_id,
+                    sensor_pose=product.receiver_pose,
                 )
             )
     return tuple(output)

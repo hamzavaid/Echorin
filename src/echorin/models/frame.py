@@ -16,6 +16,8 @@ class FrameResult:
     range_profile: Any | None = None
     range_doppler_product: Any | None = None
     range_angle_product: Any | None = None
+    platform_states: list[Any] = field(default_factory=list)
+    receiver_pose: Any | None = None
     detections: list[Any] = field(default_factory=list)
     tracks: list[Any] = field(default_factory=list)
     ground_truth: list[Any] | None = None

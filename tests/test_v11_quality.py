@@ -95,13 +95,13 @@ def test_live_processing_keeps_qt_event_loop_responsive(tmp_path) -> None:
     window = MainWindow(
         world=single_stationary_target(range_m=100.0), settings=settings
     )
-    original = window.sensor.acquire_directional_pulse_trains
+    original = window.sensor.acquire_array_pulse_train
 
     def delayed_acquisition(*args, **kwargs):
         sleep(0.15)
         return original(*args, **kwargs)
 
-    window.sensor.acquire_directional_pulse_trains = delayed_acquisition
+    window.sensor.acquire_array_pulse_train = delayed_acquisition
     heartbeat: list[bool] = []
     QTimer.singleShot(30, lambda: heartbeat.append(window.last_frame_result is None))
     window.timer.setInterval(1)

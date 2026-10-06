@@ -146,7 +146,7 @@ def test_world_platform_reset_and_versioned_scenario_migration(tmp_path) -> None
     path = tmp_path / "platform.json"
     save_scenario_json(path, world, SimulationConfig(), SensorConfig())
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     restored, _, _ = load_scenario_json(path)
     assert restored.platform_trajectory.kind is TrajectoryKind.CONSTANT_VELOCITY
     np.testing.assert_array_equal(restored.platform_state.position_m, [10.0, 20.0])

@@ -83,6 +83,11 @@ class PpiView(QWidget):
             self.plot.plot(pen=pg.mkPen((0, 180, 220, 100), width=1)),
         )
         self.plot.addItem(self.target_item)
+        self.beam_items = tuple(
+            self.plot.plot(pen=pg.mkPen("#c292ff", width=1.5)) for _ in range(4)
+        )
+        self._beam_visible = True
+        self._beam_directional = False
         self.detection_item = pg.ScatterPlotItem(
             symbol="x", size=11, pen=pg.mkPen("r", width=2)
         )
@@ -148,6 +153,35 @@ class PpiView(QWidget):
 
     def set_platform_trail_visible(self, visible: bool) -> None:
         self.platform_trail_item.setVisible(visible)
+
+    def set_beam(
+        self,
+        pose: SensorPose,
+        local_boresight_rad: float,
+        width_rad: float,
+        directional: bool = True,
+    ) -> None:
+        """Overlay configured beam limits, not measured/ground-truth bearings."""
+        self._beam_directional = directional
+        angle = pose.heading_rad + local_boresight_rad
+        angles = np.linspace(angle - width_rad / 2, angle + width_rad / 2, 80)
+        radius = self.max_range_m * 0.9
+        self.beam_items[0].setData(
+            pose.x_m + radius * np.cos(angles), pose.y_m + radius * np.sin(angles)
+        )
+        for item, direction in zip(
+            self.beam_items[1:], (angles[0], angles[-1], angle), strict=True
+        ):
+            item.setData(
+                [pose.x_m, pose.x_m + radius * np.cos(direction)],
+                [pose.y_m, pose.y_m + radius * np.sin(direction)],
+            )
+        self.set_beam_visible(self._beam_visible)
+
+    def set_beam_visible(self, visible: bool) -> None:
+        self._beam_visible = visible
+        for item in self.beam_items:
+            item.setVisible(visible and self._beam_directional)
 
     def set_array_fov_visible(self, visible: bool) -> None:
         for item in self.array_fov_items:

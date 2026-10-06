@@ -10,8 +10,10 @@ from math import degrees
 import numpy as np
 
 from echorin.config import ArrayConfig
+from echorin.environment.config import EnvironmentConfig
 from echorin.models import SensorPose
 from echorin.models.platform import MountTransform, PlatformState
+from echorin.sensors.beam_pattern import BeamConfig
 from echorin.simulation.kinematics import relative_geometry
 from echorin.simulation.target import Target
 from echorin.simulation.trajectories import PlatformTrajectory
@@ -28,6 +30,8 @@ class World:
         platform_trajectory: PlatformTrajectory | None = None,
         sensor_mount: MountTransform | None = None,
         array_config: ArrayConfig | None = None,
+        environment_config: EnvironmentConfig | None = None,
+        beam_config: BeamConfig | None = None,
     ) -> None:
         if sensor_pose is not None and platform_state is not None:
             raise ValueError("provide either sensor_pose or platform_state")
@@ -43,6 +47,8 @@ class World:
         self.platform_trajectory = platform_trajectory or PlatformTrajectory()
         self.sensor_mount = sensor_mount or MountTransform()
         self.array_config = array_config or ArrayConfig()
+        self.environment_config = environment_config or EnvironmentConfig()
+        self.beam_config = beam_config or BeamConfig()
         self._targets: dict[str, Target] = {}
         self.time_s = self.platform_state.timestamp_s
         self._platform_history: list[tuple[float, float]] = [

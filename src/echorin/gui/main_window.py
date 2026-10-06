@@ -31,7 +31,9 @@ from echorin.dsp.cfar import CaCfarDetector, CfarConfig, CfarResult
 from echorin.dsp.doppler import DopplerProduct
 from echorin.dsp.range_angle import RangeAngleProduct
 from echorin.dsp.range_processing import RangeProfile, SignalProcessor
+from echorin.environment.config import EnvironmentConfig
 from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
+from echorin.gui.environment_controls import EnvironmentControls
 from echorin.gui.heatmaps import RangeDopplerView
 from echorin.gui.inspectors import MeasurementTrackInspector
 from echorin.gui.platform_controls import PlatformControls
@@ -45,8 +47,10 @@ from echorin.models.platform import MountTransform, PlatformState
 from echorin.models.track import Track
 from echorin.sensors.array import geometry_for_config
 from echorin.sensors.base import SensorFrame
+from echorin.sensors.beam_pattern import BeamConfig
 from echorin.sensors.echo import SyntheticMonostaticSensor
 from echorin.sensors.factory import create_sensor
+from echorin.sensors.scan import ScanScheduler
 from echorin.signals.waveform import WaveformKind
 from echorin.simulation.scenarios import crossing_targets, single_stationary_target
 from echorin.simulation.target import Target
@@ -74,6 +78,8 @@ class MainWindow(QMainWindow):
         self.sensor: SyntheticMonostaticSensor = create_sensor(
             self.sensor_config,
             self.world.sensor_pose,
+            environment=self.world.environment_config,
+            beam=self.world.beam_config,
             random_seed=self.simulation_config.random_seed,
             array_geometry=geometry_for_config(
                 self.world.array_config, self.sensor_config
@@ -154,6 +160,17 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.LeftDockWidgetArea,
         )
         self.tabifyDockWidget(self.scenario_dock, self.platform_dock)
+        self.environment_controls = EnvironmentControls(self.sensor_config)
+        self.environment_controls.set_configs(
+            self.world.environment_config, self.world.beam_config
+        )
+        self.environment_dock = self._add_dock(
+            "Environment / Beam / Scan",
+            "environment",
+            self.environment_controls,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.platform_dock, self.environment_dock)
         self.scenario_dock.raise_()
         self.tracks_dock = self._add_dock(
             "Tracks",
@@ -268,6 +285,8 @@ class MainWindow(QMainWindow):
         self.target_editor.target_edited.connect(self._edit_target)
         self.target_editor.target_removed.connect(self._remove_target)
         self.platform_controls.platform_changed.connect(self._set_platform)
+        self.environment_controls.environment_changed.connect(self._set_environment)
+        self.environment_controls.beam_toggled.connect(self.ppi_view.set_beam_visible)
         self.platform_controls.trail_toggled.connect(
             self.ppi_view.set_platform_trail_visible
         )
@@ -348,7 +367,8 @@ class MainWindow(QMainWindow):
             f"border: 1px solid {border}; padding: 5px 10px; }} "
             f"QTabBar::tab:selected {{ background: {selected}; color: {foreground}; }} "
             f"QTabBar::tab:hover {{ background: {selected}; }} "
-            f"QComboBox, QDoubleSpinBox, QSpinBox {{ background: {background}; "
+            f"QComboBox, QDoubleSpinBox, QSpinBox, QPlainTextEdit, QLineEdit "
+            f"{{ background: {background}; "
             f"color: {foreground}; border: 1px solid {border}; }} "
             f"QComboBox QAbstractItemView {{ background: {background}; "
             f"color: {foreground}; selection-background-color: {selected}; "
@@ -502,6 +522,9 @@ class MainWindow(QMainWindow):
         )
         self.diagnostics.setText(
             f"Mode: {self.sensor_config.mode.value.title()}\n"
+            f"Noise: {self.world.environment_config.receiver_noise.kind}\n"
+            f"Beam: {self.world.beam_config.kind} / "
+            f"{self.world.beam_config.scan.kind}\n"
             f"Simulation: {simulation_s * 1e3:.2f} ms\n"
             f"Sensing: {sensing_s * 1e3:.2f} ms\n"
             f"DSP: {dsp_s * 1e3:.2f} ms\n"
@@ -560,19 +583,30 @@ class MainWindow(QMainWindow):
         mode = SensorMode(mode_text.lower())
         if mode is self.sensor_config.mode:
             return
-        self.timer.stop()
-        self._invalidate_pending()
-        self.sensor_config = (
+        config = (
             SensorConfig.radar() if mode is SensorMode.RADAR else SensorConfig.sonar()
         )
-        self.sensor = create_sensor(
-            self.sensor_config,
-            self.world.sensor_pose,
-            random_seed=self.simulation_config.random_seed,
-            array_geometry=geometry_for_config(
-                self.world.array_config, self.sensor_config
-            ),
-        )
+        try:
+            sensor = create_sensor(
+                config,
+                self.world.sensor_pose,
+                environment=self.world.environment_config,
+                beam=self.world.beam_config,
+                random_seed=self.simulation_config.random_seed,
+                array_geometry=geometry_for_config(self.world.array_config, config),
+            )
+        except ValueError as error:
+            self.environment_controls.error_label.setText(str(error))
+            self.controls.mode_combo.blockSignals(True)
+            self.controls.mode_combo.setCurrentText(
+                self.sensor_config.mode.value.title()
+            )
+            self.controls.mode_combo.blockSignals(False)
+            return
+        self.timer.stop()
+        self._invalidate_pending()
+        self.sensor_config, self.sensor = config, sensor
+        self.environment_controls.sensor_config = config
         self.signal_processor = SignalProcessor(self.sensor_config)
         self.cfar_detector = CaCfarDetector(
             CfarConfig(
@@ -646,6 +680,7 @@ class MainWindow(QMainWindow):
 
     def _set_preset(self, preset_text: str) -> None:
         self.timer.stop()
+        environment, beam = self.world.environment_config, self.world.beam_config
         self.world = (
             crossing_targets(seed=self.simulation_config.random_seed)
             if preset_text == "Crossing"
@@ -653,6 +688,7 @@ class MainWindow(QMainWindow):
                 range_m=min(1_500.0, self.sensor_config.max_range_m / 2.0)
             )
         )
+        self.world.environment_config, self.world.beam_config = environment, beam
         self._rebuild_sensor_preserving_mode()
         self.platform_controls.set_from_world(self.world)
         self.ppi_view.set_targets(self.world.targets)
@@ -666,6 +702,8 @@ class MainWindow(QMainWindow):
         self.sensor = create_sensor(
             self.sensor_config,
             self.world.sensor_pose,
+            environment=self.world.environment_config,
+            beam=self.world.beam_config,
             random_seed=self.simulation_config.random_seed,
             array_geometry=geometry_for_config(
                 self.world.array_config, self.sensor_config
@@ -696,12 +734,40 @@ class MainWindow(QMainWindow):
         self.world.checkpoint_reset_state()
         self.reset()
 
+    def _set_environment(
+        self, environment: EnvironmentConfig, beam: BeamConfig
+    ) -> None:
+        """Validate synthesis workload before atomically replacing the scenario."""
+        try:
+            create_sensor(
+                self.sensor_config,
+                self.world.sensor_pose,
+                self.simulation_config.random_seed,
+                geometry_for_config(self.world.array_config, self.sensor_config),
+                environment,
+                beam,
+            )
+        except (ValueError, TypeError) as error:
+            self.environment_controls.error_label.setText(str(error))
+            return
+        self.world.environment_config = environment
+        self.world.beam_config = beam
+        self.reset()
+
     def _refresh_world_views(self, update_editor: bool = True) -> None:
         self.ppi_view.set_targets(self.world.targets)
         self.ppi_view.set_platform(
             self.world.sensor_pose,
             self.world.platform_history,
             self.world.array_config.orientation_rad,
+        )
+        beam = self.world.beam_config
+        self.ppi_view.set_beam(
+            self.world.sensor_pose,
+            self.world.array_config.orientation_rad
+            + ScanScheduler(beam.scan).boresight(self.world.time_s),
+            beam.display_width_rad,
+            beam.kind != "isotropic",
         )
         if update_editor:
             self.target_editor.set_targets(self.world.targets)

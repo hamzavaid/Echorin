@@ -15,6 +15,7 @@ from echorin.config import (
     SensorMode,
     SimulationConfig,
 )
+from echorin.environment.serialization import beam_from_dict, environment_from_dict
 from echorin.models.detection import Detection
 from echorin.models.frame import FrameResult
 from echorin.models.geometry import SensorPose
@@ -33,7 +34,9 @@ def save_scenario_json(
 ) -> None:
     """Serialize a complete repeatable scenario using public model fields."""
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
+        "environment": asdict(world.environment_config),
+        "beam": asdict(world.beam_config),
         "simulation": asdict(simulation_config),
         "sensor": {
             **asdict(sensor_config),
@@ -77,7 +80,7 @@ def load_scenario_json(
     """Load a scenario created by :func:`save_scenario_json`."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     version = payload.get("schema_version", 1)
-    if version not in (1, 2):
+    if version not in (1, 2, 3):
         raise ValueError(f"unsupported scenario schema version: {version}")
     sensor_data = dict(payload["sensor"])
     sensor_data["mode"] = SensorMode(sensor_data["mode"])
@@ -98,6 +101,12 @@ def load_scenario_json(
             platform_trajectory=trajectory,
             sensor_mount=MountTransform(**platform["sensor_mount"]),
             array_config=ArrayConfig(**platform.get("array_config", {})),
+            environment_config=environment_from_dict(payload.get("environment", {}))
+            if version == 3
+            else None,
+            beam_config=beam_from_dict(payload.get("beam", {}))
+            if version == 3
+            else None,
         )
     return (
         world,

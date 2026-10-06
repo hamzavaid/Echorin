@@ -1,4 +1,4 @@
-# Echorin v1.3
+# Echorin v1.4
 
 Echorin is a real-time 2D Radar and Sonar simulation application that keeps
 ground truth separate from sensing. Moving point targets produce delayed,
@@ -47,6 +47,15 @@ moving sensor platforms with rigid-body receiver mounts, stationary/constant-
 velocity/constant-acceleration/coordinated-turn/waypoint motion, moving-receiver
 Doppler, a platform editor and PPI path/heading overlays. Both Radar and Sonar
 use the composite array path; the legacy directional API remains for compatibility.
+
+v1.4 adds configurable receiver noise (white, colored, impulsive and correlated),
+narrowband interference, distributed clutter/acoustic reverberation, delayed
+multipath, physical beam gains and simulation-clock scans. All effects enter raw
+samples before the existing DSP. Defaults preserve v1.3 sensing behavior.
+
+![Environmental engineering workspace](screenshots/echorin-environment.png)
+
+[Clutter and CA-CFAR comparison](benchmarks/environment_comparison.svg)
 
 - Constant-velocity scenarios with deterministic seeds and editable targets
 - Radar and Sonar modes through one validated monostatic sensor abstraction
@@ -126,8 +135,10 @@ Generate the deterministic benchmark and optional release captures:
 python benchmarks/run_tracking_benchmark.py
 python benchmarks/run_array_benchmark.py
 python benchmarks/run_platform_benchmark.py
+python benchmarks/run_environment_benchmark.py
 python -m pip install -e ".[release]"
 python examples/capture_demo.py
+python examples/capture_environment_demo.py
 ```
 
 ## Documentation
@@ -137,6 +148,7 @@ python examples/capture_demo.py
 - [v1.1 release notes](docs/releases/v1.1.md)
 - [v1.2 release notes](docs/releases/v1.2.md)
 - [v1.3 release notes](docs/releases/v1.3.md)
+- [v1.4 release notes](docs/releases/v1.4.md)
 - [Array benchmark scenarios](docs/scenarios.md)
 - [Tracking benchmark results](benchmarks/tracking_results.json)
 
@@ -147,5 +159,6 @@ or operational sensing system. It uses point reflectors, integer-sample delays,
 a bounded simplified inverse-power amplitude law, AWGN, a far-field narrowband
 array phase model, and a stop-and-hop coherent-pulse model. A linear array has
 front/back ambiguity and the initial scan covers receiver-relative -90 to +90
-degrees. It does not model clutter,
-multipath, detailed antenna/acoustic beam patterns, ray tracing, or hardware.
+degrees. Optional v1.4 models add phenomenological clutter/reverberation,
+secondary paths and analytical beam patterns; they are not calibrated terrain,
+ocean, antenna or hardware solvers. No bistatic processing or ray tracing is included.

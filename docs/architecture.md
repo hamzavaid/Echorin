@@ -108,8 +108,41 @@ has no detections.
 
 ## Simplifying assumptions
 
-Targets are point reflectors with constant Cartesian velocity. Propagation uses
-integer-sample two-way delay, bounded inverse-power amplitude, AWGN, no clutter,
-and no multipath. Array phase uses the far-field narrowband approximation and
+Targets are point reflectors with constant Cartesian velocity. Default propagation
+uses integer-sample two-way delay, bounded inverse-power amplitude and AWGN.
+Optional v1.4 environmental effects are described below. Array phase uses the
+far-field narrowband approximation and
 has ULA front/back ambiguity. Coherent pulse trains use a stop-and-hop assumption,
 so range migration within one coherent processing interval is ignored.
+
+## v1.4 environment and propagation boundary
+
+`World` owns immutable `EnvironmentConfig` and `BeamConfig` alongside platform
+and array settings. The factory composes these into the shared monostatic sensor.
+`environment/` supplies noise, coherent tones and persistent scattering fields;
+`propagation/multipath.py` expands direct/secondary paths. `sensors/beam_pattern.py`
+and `sensors/scan.py` provide one-way gains and a stateless simulation-clock scan.
+No numerical module imports Qt. No DSP/detection/tracking API acquires truth IDs,
+exact target coordinates or truth bearings.
+
+The sensor accumulates delayed, attenuated, beam-weighted target/field/path
+returns in `[element, pulse, sample]`, adds coherent interference, then receiver
+noise. Existing matched filtering, Range-Doppler, Bartlett, CA-CFAR and tracking
+consume the same raw-array interface. Secondary paths and clutter are not
+injected as artificial detections. Receiver noise is a `NoiseModel` protocol;
+AWGN delegates to the existing real/complex/SNR implementation.
+
+The original AWGN RNG stream is retained. Field randomness uses an independent
+`SeedSequence(seed, spawn_key=(1,))`, so adding a field does not reorder receiver
+noise draws. Fields are anchored in world coordinates at sensor construction;
+their phases/velocities persist across acquisitions. Reset/rebuild restores the
+seeded state. Changing noise kind intentionally changes its own draw sequence.
+
+The Environment / Beam / Scan dock validates edits before replacing the sensor,
+then restarts the scenario. Invalid mode changes leave the prior sensor intact.
+Live processing uses the existing single-worker pipeline and generation-based
+stale-result rejection. Beam overlay uses configured boresight/width, not truth.
+Scenario schema 3 persists all environment and scan settings; schema 1/2 load
+with empty environment/isotropic defaults. Frame export remains schema 2 and
+truth-free. Saved scenarios describe a fresh seeded field anchored to their
+starting receiver pose, not a checkpoint of a previously evolved field.

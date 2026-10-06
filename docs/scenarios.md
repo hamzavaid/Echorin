@@ -45,3 +45,83 @@ the preset at half its configured maximum range (100 m by default). Edge-
 adaptive CA-CFAR separately validates that an explicitly configured 100-m
 Radar target is detected; moving the preset does not hide a near-range blind
 spot in the processing chain.
+
+## v1.4 environmental engineering workspace
+
+Open **View → Environment / Beam / Scan** (also tabbed beside Scenario and
+Sensor Platform). Select a noise kind, beam pattern and scan mode; edit angular
+controls in **degrees**. Choose an effects template, inspect/edit its JSON,
+then click **Apply environment / beam**. Apply pauses and resets the scenario
+so the edited configuration starts reproducibly. Existing Sensor controls set
+receiver noise sigma. The beam checkbox changes only overlay visibility, not
+signal gains. The separate ULA FOV guide is not the beam envelope.
+
+JSON effects support multiple entries. Example for Radar with two tones, a
+sparse field, and a secondary path (JSON angles are **radians**):
+
+```json
+{
+  "interference": [
+    {"frequency_hz": 1000000, "amplitude": 0.02, "arrival_angle_rad": 0.2},
+    {"frequency_hz": 800000, "amplitude": 0.01, "drift_hz_s": 10}
+  ],
+  "clutter": [{"density_per_m": 0.002, "reflectivity_scale": 0.1}],
+  "multipath": [{"extra_path_length_m": 2000, "attenuation_scale": 0.4,
+                 "phase_offset_rad": 0.3, "angle_offset_rad": 0.05}],
+  "attenuation_exponent": 2,
+  "absorption_db_per_m": 0
+}
+```
+
+For Sonar use frequencies below 48 kHz at the default sample rate, path lengths
+appropriate to its 200-m maximum range, and `kind: "reverberation"` with
+`decay_range_m`. The Clutter / Reverberation and Multipath templates scale to
+the selected medium. Interference drift is checked against sample Nyquist on
+every acquisition; config/work-limit errors are shown without replacing the
+sensor. Increasing field density increases processing work. Doppler-aliasing
+limits also apply to field velocities and moving-platform relative motion.
+
+Programmatic use shares the exact same sensor pipeline:
+
+```python
+from echorin.config import SensorConfig
+from echorin.environment.config import EnvironmentConfig, ReceiverNoiseConfig
+from echorin.propagation.multipath import MultipathComponent
+from echorin.sensors.beam_pattern import BeamConfig
+from echorin.sensors.factory import create_sensor
+from echorin.sensors.scan import ScanConfig
+
+environment = EnvironmentConfig(
+    receiver_noise=ReceiverNoiseConfig(kind="colored", correlation=0.85),
+    multipath=(MultipathComponent(2000, 0.4),),
+)
+beam = BeamConfig(kind="gaussian", width_rad=1.0,
+                  scan=ScanConfig(kind="sector"))
+sensor = create_sensor(SensorConfig(), random_seed=7,
+                       environment=environment, beam=beam)
+raw = sensor.acquire_array_pulse_train((), timestamp_s=0.1, pulse_count=32)
+```
+
+For scenario persistence set `world.environment_config` / `world.beam_config`
+before calling the existing `save_scenario_json`; schema 3 preserves all
+parameters, including discrete scan angles. Legacy schemas 1/2 load as AWGN,
+no extra effects and isotropic beam. Frame recordings remain truth-free schema 2.
+
+### Reproducible environmental benchmark
+
+Run `python benchmarks/run_environment_benchmark.py`. Seed 7, four frames per
+case, noise sigma 0.001, eight half-wavelength receivers, Radar max range 3 km
+and 32 pulses, Sonar max range 60 m and 16 pulses. A stationary target is at
+one-third maximum range and bearing 20 degrees. The JSON includes full physical,
+environment and beam configuration, detection counts, target/ghost hits, bin
+widths, errors and timings. The scan case alternates on/off dwells. Noise cases
+include AWGN, AR(1), impulses and receiver correlation; field case is Rayleigh
+clutter in Radar and exponentially decaying reverberation in Sonar. Density,
+phase, interference and secondary paths affect raw signals; they are never
+injected as perfect measurements.
+
+The [comparison figure](../benchmarks/environment_comparison.svg) shows one
+baseline versus field-contaminated matched-filter profile and the corresponding
+CA-CFAR thresholds in both modes. Regenerate it and the environment workspace
+capture with `python examples/capture_environment_demo.py` after installing
+the optional `release` dependencies. The older release captures remain intact.

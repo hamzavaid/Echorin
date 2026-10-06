@@ -247,3 +247,75 @@ Velocity arrows start at the track estimate and end at the position predicted
 by five seconds of constant-velocity motion. They are visualization aids, not
 new tracker measurements. Tentative, confirmed, and coasting tracks have
 distinct markers/colors. Hidden truth is never used to construct these overlays.
+
+## v1.4 environmental models
+
+All disturbances are synthesized into raw samples, so their consequences pass
+through the same matched filter, Doppler, Bartlett, CA-CFAR and tracker.
+White complex noise splits total variance equally between real/imaginary parts.
+Colored noise is stationary fast-time AR(1), independently filtered per channel:
+
+$$
+n_k=a n_{k-1}+\sqrt{1-a^2}\,w_k,\qquad |a|<1,
+\quad S_n(\omega)=\frac{\sigma^2(1-a^2)}{|1-ae^{-j\omega}|^2}.
+$$
+
+Initial filter state is sampled from the stationary distribution. Sparse
+impulses have Bernoulli event probability per sample and fixed configured
+amplitude with random sign (real) or uniform phase (complex). Correlated array
+noise has receiver covariance
+
+$$
+C=\sigma^2[(1-\rho)I+\rho\mathbf{1}\mathbf{1}^{T}],\qquad 0\le\rho\le1.
+$$
+
+Interference tones use absolute simulation time, including slow-time pulse
+offsets: $A\exp(j[\phi+2\pi(f_0t+\dot f t^2/2)])$. Common-mode interference
+represents receiver injection; an arrival angle produces physical inter-element
+phase delays at the tone frequency and one-way receive-beam gain. Drift beyond
+sample Nyquist is rejected, rather than silently aliased.
+
+Clutter is a seeded Poisson field with density per range metre, uniform bearings,
+Rayleigh reflectivity and random phase. Optional bounded radial velocities are
+assigned at initialization. Sonar reverberation is a separate phenomenological
+exponential-reflectivity field with range decay. Both are persistent world-space
+reflectors, so moving-receiver geometry and relative Doppler apply normally.
+Density is not area density; neither model is a calibrated terrain/ocean model.
+
+A secondary monostatic path adds total outbound-plus-return length $\Delta L$:
+
+$$
+\tau_p=\frac{2R+\Delta L_p}{c},\qquad
+R_{\mathrm{apparent},p}=R+\frac{\Delta L_p}{2}.
+$$
+
+Path attenuation, explicit phase and arrival-angle offsets affect the delayed
+echo. Paths outside the acquisition window are omitted. Extra path length is
+constant during a CPI, so secondary paths inherit direct-path range rate.
+Baseline spreading uses bounded inverse-power amplitude at apparent range;
+optional absorption multiplies amplitude by $10^{-\alpha L/20}$ for loss
+$\alpha$ in dB per total path metre. This is path expansion, not ray tracing.
+
+Beam functions return one-way **amplitude**, not power. Monostatic point echoes
+are weighted by transmit times receive gain (the same gain squared here).
+Isotropic gain is unity; a sector has an explicit sidelobe amplitude; a Gaussian
+of full one-way half-power width $W$ uses
+
+$$
+g(\theta)=\exp[-2\ln2(\theta/W)^2].
+$$
+
+A uniform aperture uses $|\operatorname{sinc}(D\sin\theta)|$, with $D$ in
+carrier wavelengths and NumPy's normalized sinc; its rear hemisphere is
+explicitly suppressed. Analytical patterns are narrowband, not calibrated
+antenna models. A scan supplies receiver-array-local boresight from simulation
+time: fixed, continuous rotation, sector ping-pong/reset, or discrete dwells.
+Boresight is held for each CPI under the existing stop-and-hop approximation.
+The PPI shows sector edges or nominal half-power width and boresight; sidelobes
+still contribute actual returns. Scanning does not replace array DOA estimation.
+
+CA-CFAR's analytical false-alarm calibration assumes exponential independent
+noise power. Colored/impulsive/correlated noise and structured clutter violate
+that assumption: extra detections and missed targets are legitimate simulation
+outcomes, not secretly corrected using truth. Improved CFAR/tracking algorithms
+are outside v1.4.

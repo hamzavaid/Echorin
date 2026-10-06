@@ -6,7 +6,12 @@ from scipy.signal import welch
 
 from echorin.config import NoiseConfig
 from echorin.environment.interference import NarrowbandInterference
-from echorin.environment.noise import AwgnNoise, ColoredNoise, ImpulsiveNoise
+from echorin.environment.noise import (
+    AwgnNoise,
+    ColoredNoise,
+    CorrelatedArrayNoise,
+    ImpulsiveNoise,
+)
 from echorin.signals.noise import add_awgn
 
 
@@ -64,3 +69,17 @@ def test_tone_frequency_drift_and_phase_are_physical():
 def test_invalid_disturbance_parameters_are_rejected(factory):
     with pytest.raises(ValueError):
         factory()
+
+
+def test_correlated_array_noise_matches_requested_covariance():
+    model = CorrelatedArrayNoise(NoiseConfig(0.3), correlation=0.6)
+    result = model.add(np.zeros((4, 100_000), complex), np.random.default_rng(7))
+    covariance = result @ result.conj().T / result.shape[-1]
+    expected = 0.09 * (0.4 * np.eye(4) + 0.6 * np.ones((4, 4)))
+    np.testing.assert_allclose(covariance, expected, atol=0.001)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1])
+def test_noise_scale_rejects_nonfinite_or_negative_values(value):
+    with pytest.raises(ValueError):
+        NoiseConfig(value)

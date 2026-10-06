@@ -97,3 +97,32 @@ class ImpulsiveNoise:
             else rng.choice([-1.0, 1.0], result.shape)
         )
         return np.asarray(result + events * self.amplitude * phase)
+
+
+@dataclass(frozen=True, slots=True)
+class CorrelatedArrayNoise:
+    """Equicorrelated receivers: covariance sigma²[(1-rho)I + rho 11ᵀ].
+
+    First axis is receiver; other innovations are independent. Single-channel
+    inputs retain their marginal variance.
+    """
+
+    config: NoiseConfig = field(default_factory=NoiseConfig)
+    correlation: float = 0.5
+
+    def __post_init__(self) -> None:
+        if not isfinite(self.correlation) or not 0 <= self.correlation <= 1:
+            raise ValueError("array correlation must be in [0,1]")
+
+    def add(self, signal: ArrayLike, rng: np.random.Generator) -> Samples:
+        values = np.asarray(signal)
+        if values.ndim < 2:
+            return add_awgn(values, self.config, rng)
+        scale = NoiseConfig(noise_standard_deviation(values, self.config))
+        independent = add_awgn(np.zeros_like(values), scale, rng)
+        common = add_awgn(np.zeros_like(values[:1]), scale, rng)
+        return np.asarray(
+            values
+            + np.sqrt(1 - self.correlation) * independent
+            + np.sqrt(self.correlation) * common
+        )

@@ -10,7 +10,10 @@ from numpy.typing import NDArray
 
 from echorin.config import SensorConfig, SensorMode
 from echorin.dsp.doppler import radial_velocity_to_doppler_hz
+from echorin.environment.config import EnvironmentConfig
+from echorin.environment.field import build_field
 from echorin.models.geometry import SensorPose
+from echorin.propagation.multipath import expand_paths
 from echorin.sensors.array import ArrayGeometry, uniform_linear_array
 from echorin.sensors.base import (
     ArrayPulseData,
@@ -21,6 +24,8 @@ from echorin.sensors.base import (
     Sensor,
     SensorFrame,
 )
+from echorin.sensors.beam_pattern import BeamConfig
+from echorin.sensors.scan import ScanScheduler
 from echorin.signals.noise import add_awgn
 from echorin.signals.propagation import delayed_echo
 from echorin.signals.waveform import WaveformKind, generate_waveform
@@ -60,6 +65,34 @@ class SyntheticMonostaticSensor(Sensor):
         )
         self._random_seed = random_seed
         self._rng = np.random.default_rng(random_seed)
+        self._environment_origin = self.pose
+        self.environment = EnvironmentConfig()
+        self.beam = BeamConfig()
+        self.configure_environment(self.environment, self.beam)
+
+    def configure_environment(
+        self, environment: EnvironmentConfig, beam: BeamConfig
+    ) -> None:
+        """Validate and seed optional effects independently of legacy AWGN.
+
+        Called at construction/rebuild, never while an acquisition is running.
+        Field RNG does not consume the legacy noise stream. The CPI uses the
+        boresight at its timestamp (stop-and-hop scan approximation).
+        """
+        for tone in environment.interference:
+            if abs(tone.frequency_hz) >= self.config.sample_rate_hz / 2:
+                raise ValueError("interference exceeds receiver Nyquist")
+        self.environment = environment
+        self.beam = beam
+        self._noise = environment.receiver_noise.model(self.config.noise_model)
+        self._beam_pattern = beam.pattern()
+        self._scan = ScanScheduler(beam.scan)
+        field_rng = np.random.default_rng(
+            np.random.SeedSequence(self._random_seed, spawn_key=(1,))
+        )
+        self._field = build_field(
+            environment, self.config.max_range_m, self._environment_origin, field_rng
+        )
 
     def reset(self) -> None:
         """Restore the seeded noise sequence for deterministic replay."""
@@ -69,6 +102,7 @@ class SyntheticMonostaticSensor(Sensor):
         self, targets: Iterable[ReflectiveTarget], timestamp_s: float
     ) -> SensorFrame:
         """Synthesize one composite raw signal without perfect detections."""
+        targets = tuple(targets)
         transmitted = generate_waveform(self.config, self.waveform_kind)
         noiseless = np.zeros(self.config.acquisition_samples, dtype=np.float64)
         for target in targets:
@@ -80,7 +114,9 @@ class SyntheticMonostaticSensor(Sensor):
                     self.config,
                     reflectivity=target.reflectivity,
                 )
-        received = add_awgn(noiseless, self.config.noise_model, self._rng)
+        if self.environment != EnvironmentConfig() or self.beam != BeamConfig():
+            noiseless = self._synthesize(targets, timestamp_s, 1)[0].real
+        received = self._disturb(noiseless, timestamp_s)
         return SensorFrame(
             timestamp_s, transmitted, np.asarray(received, dtype=np.float64)
         )
@@ -95,13 +131,8 @@ class SyntheticMonostaticSensor(Sensor):
             geometry = relative_geometry(self.pose, target)
             if geometry.range_m > self.config.max_range_m:
                 continue
-            echo = delayed_echo(
-                transmitted,
-                geometry.range_m,
-                self.config,
-                reflectivity=target.reflectivity,
-            )
-            received = add_awgn(echo, self.config.noise_model, self._rng)
+            echo = self._synthesize((target,), timestamp_s, 1)[0].real
+            received = self._disturb(echo, timestamp_s)
             frames.append(
                 DirectionalSensorFrame(
                     timestamp_s,
@@ -121,20 +152,8 @@ class SyntheticMonostaticSensor(Sensor):
         """Synthesize a coherent CPI under the stop-and-hop narrowband model."""
         self._validate_pulse_count(pulse_count)
         transmitted = generate_waveform(self.config, self.waveform_kind)
-        received = np.zeros(
-            (pulse_count, self.config.acquisition_samples), dtype=np.complex128
-        )
-        for target in targets:
-            geometry = relative_geometry(self.pose, target)
-            if geometry.range_m <= self.config.max_range_m:
-                received += self._coherent_target_return(
-                    transmitted,
-                    geometry.range_m,
-                    geometry.radial_velocity_mps,
-                    target.reflectivity,
-                    pulse_count,
-                )
-        noisy = add_awgn(received, self.config.noise_model, self._rng)
+        received = self._synthesize(targets, timestamp_s, pulse_count)
+        noisy = self._disturb(received, timestamp_s)
         return PulseTrainFrame(
             timestamp_s,
             transmitted,
@@ -155,14 +174,8 @@ class SyntheticMonostaticSensor(Sensor):
             geometry = relative_geometry(self.pose, target)
             if geometry.range_m > self.config.max_range_m:
                 continue
-            received = self._coherent_target_return(
-                transmitted,
-                geometry.range_m,
-                geometry.radial_velocity_mps,
-                target.reflectivity,
-                pulse_count,
-            )
-            noisy = add_awgn(received, self.config.noise_model, self._rng)
+            received = self._synthesize((target,), timestamp_s, pulse_count)
+            noisy = self._disturb(received, timestamp_s)
             frames.append(
                 DirectionalPulseTrainFrame(
                     timestamp_s,
@@ -182,41 +195,8 @@ class SyntheticMonostaticSensor(Sensor):
         """Accumulate all target echoes in physical receiver channels before DSP."""
         self._validate_pulse_count(pulse_count)
         transmitted = generate_waveform(self.config, self.waveform_kind)
-        shape = (
-            self.array_geometry.element_count,
-            pulse_count,
-            self.config.acquisition_samples,
-        )
-        received = np.zeros(shape, dtype=np.complex128)
-        wavelength = (
-            self.config.propagation_speed_mps / self.config.carrier_frequency_hz
-        )
-        relative = (
-            self.array_geometry.element_positions_m
-            - self.array_geometry.element_positions_m[
-                self.array_geometry.reference_element
-            ]
-        )
-        for target in targets:
-            geometry = relative_geometry(self.pose, target)
-            if geometry.range_m > self.config.max_range_m:
-                continue
-            local_angle = (
-                geometry.bearing_rad
-                - self.pose.heading_rad
-                - self.array_geometry.orientation_rad
-            )
-            direction = np.array([np.cos(local_angle), np.sin(local_angle)])
-            phase = np.exp(2j * np.pi * (relative @ direction) / wavelength)
-            response = self._coherent_target_return(
-                transmitted,
-                geometry.range_m,
-                geometry.radial_velocity_mps,
-                target.reflectivity,
-                pulse_count,
-            )
-            received += phase[:, None, None] * response[None, :, :]
-        noisy = add_awgn(received, self.config.noise_model, self._rng)
+        received = self._synthesize(targets, timestamp_s, pulse_count, array=True)
+        noisy = self._disturb(received, timestamp_s)
         return ArrayPulseData(
             timestamp_s,
             transmitted,
@@ -227,6 +207,128 @@ class SyntheticMonostaticSensor(Sensor):
             self.pose,
             self.array_geometry,
         )
+
+    def _synthesize(
+        self,
+        targets: Iterable[ReflectiveTarget],
+        timestamp_s: float,
+        pulse_count: int,
+        *,
+        array: bool = False,
+    ) -> NDArray[np.complex128]:
+        """Accumulate target/path/field returns before noise or numerical DSP."""
+        transmitted = generate_waveform(self.config, self.waveform_kind)
+        elements = self.array_geometry.element_count if array else 1
+        received = np.zeros(
+            (elements, pulse_count, self.config.acquisition_samples),
+            dtype=np.complex128,
+        )
+        wavelength = (
+            self.config.propagation_speed_mps / self.config.carrier_frequency_hz
+        )
+        relative = (
+            self.array_geometry.element_positions_m
+            - self.array_geometry.element_positions_m[
+                self.array_geometry.reference_element
+            ]
+        )
+        sources = (
+            *targets,
+            *(
+                p.at(timestamp_s - self._environment_origin.timestamp_s)
+                for p in self._field
+            ),
+        )
+        boresight = self._scan.boresight(timestamp_s)
+        for target in sources:
+            geometry = relative_geometry(self.pose, target)
+            if geometry.range_m > self.config.max_range_m:
+                continue
+            local_angle = (
+                geometry.bearing_rad
+                - self.pose.heading_rad
+                - self.array_geometry.orientation_rad
+            )
+            for path in expand_paths(
+                geometry.range_m,
+                self.config.propagation_speed_mps,
+                self.environment.multipath,
+            ):
+                apparent_range = path.path_length_m / 2
+                if apparent_range > self.config.max_range_m:
+                    continue
+                angle = local_angle + path.angle_offset_rad
+                gain = (
+                    self._beam_pattern.gain(
+                        angle - boresight, self.config.carrier_frequency_hz
+                    )
+                    ** 2
+                )
+                if gain == 0:
+                    continue
+                direction = np.array([np.cos(angle), np.sin(angle)])
+                phase = (
+                    np.exp(2j * np.pi * (relative @ direction) / wavelength)
+                    if array
+                    else np.ones(1)
+                )
+                scale = (
+                    gain
+                    * path.amplitude_scale
+                    * 10
+                    ** (-self.environment.absorption_db_per_m * path.path_length_m / 20)
+                )
+                response = self._coherent_target_return(
+                    transmitted,
+                    apparent_range,
+                    geometry.radial_velocity_mps,
+                    target.reflectivity * scale,
+                    pulse_count,
+                )
+                extra_phase = path.phase_rad + getattr(target, "phase_rad", 0.0)
+                received += (
+                    phase[:, None, None]
+                    * response[None, :, :]
+                    * np.exp(1j * extra_phase)
+                )
+        return received if array else received[0]
+
+    def _disturb(self, received: NDArray, timestamp_s: float) -> NDArray:
+        """Add coherent tones, then noise; validate drift at every acquisition."""
+        result = received.copy()
+        fast = np.arange(result.shape[-1]) / self.config.sample_rate_hz
+        times = timestamp_s + fast
+        if result.ndim >= 2:
+            times = (
+                times[None, :]
+                + np.arange(result.shape[-2])[:, None] / self.config.prf_hz
+            )
+        for tone in self.environment.interference:
+            instantaneous = tone.frequency_hz + tone.drift_hz_s * times
+            if np.any(abs(instantaneous) >= self.config.sample_rate_hz / 2):
+                raise ValueError("drifting interference exceeds receiver Nyquist")
+            values = tone.samples(times, complex_output=np.iscomplexobj(result))
+            if result.ndim == 3 and tone.arrival_angle_rad is not None:
+                direction = np.array(
+                    [np.cos(tone.arrival_angle_rad), np.sin(tone.arrival_angle_rad)]
+                )
+                relative = (
+                    self.array_geometry.element_positions_m
+                    - self.array_geometry.element_positions_m[
+                        self.array_geometry.reference_element
+                    ]
+                )
+                spatial_cycles = (
+                    (relative @ direction)
+                    * tone.frequency_hz
+                    / self.config.propagation_speed_mps
+                )
+                phase = np.exp(2j * np.pi * spatial_cycles)
+                values = phase[:, None, None] * values[None, :, :]
+            result += values
+        if result.ndim < 3 and self.environment.receiver_noise.kind == "correlated":
+            return add_awgn(result, self.config.noise_model, self._rng)
+        return self._noise.add(result, self._rng)
 
     def _measure_bearing(self, true_bearing_rad: float) -> float:
         measured = true_bearing_rad + float(
@@ -257,6 +359,7 @@ class SyntheticMonostaticSensor(Sensor):
             range_m,
             self.config,
             reflectivity=reflectivity,
+            attenuation_exponent=self.environment.attenuation_exponent,
         ).astype(np.complex128)
         slow_time_s = np.arange(pulse_count, dtype=np.float64) / self.config.prf_hz
         phase = np.exp(1j * 2.0 * np.pi * doppler_hz * slow_time_s)

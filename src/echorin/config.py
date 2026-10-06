@@ -35,8 +35,10 @@ class NoiseConfig:
     snr_db: float | None = None
 
     def __post_init__(self) -> None:
-        if self.standard_deviation < 0.0:
-            raise ValueError("standard_deviation must be nonnegative")
+        if not isfinite(self.standard_deviation) or self.standard_deviation < 0.0:
+            raise ValueError("standard_deviation must be finite and nonnegative")
+        if self.snr_db is not None and not isfinite(self.snr_db):
+            raise ValueError("snr_db must be finite")
 
 
 @dataclass(frozen=True, slots=True)

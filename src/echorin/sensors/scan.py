@@ -31,8 +31,10 @@ class ScanConfig:
                 raise ValueError("scan parameters must be finite")
         if self.stop_rad <= self.start_rad or self.stop_rad - self.start_rad > 2 * pi:
             raise ValueError("scan sector must increase and span no more than 2pi")
-        if self.dwell_s <= 0 or not self.step_angles_rad or self.rate_rad_s == 0:
-            raise ValueError("scan requires positive dwell, steps and nonzero rate")
+        if self.dwell_s <= 0 or not self.step_angles_rad:
+            raise ValueError("scan requires positive dwell and step angles")
+        if self.kind in ("rotation", "sector") and self.rate_rad_s == 0:
+            raise ValueError("moving scan requires nonzero rate")
         object.__setattr__(self, "step_angles_rad", tuple(self.step_angles_rad))
 
 

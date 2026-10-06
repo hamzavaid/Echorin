@@ -2,12 +2,14 @@
 
 import json
 import os
+from threading import Event
+from time import perf_counter, sleep
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
 from echorin.config import SensorConfig, SimulationConfig
@@ -161,3 +163,47 @@ def test_environment_presets_use_medium_scaled_configurations(mode, tmp_path):
     )
     window.close()
     app.processEvents()
+
+
+@pytest.mark.parametrize("mode", ["radar", "sonar"])
+def test_environment_live_worker_leaves_event_loop_free(mode, tmp_path):
+    app = QApplication.instance() or QApplication([])
+    config = getattr(SensorConfig, mode)()
+    world = single_stationary_target(range_m=config.max_range_m / 3)
+    world.environment_config = EnvironmentConfig(
+        receiver_noise=ReceiverNoiseConfig(kind="colored")
+    )
+    window = MainWindow(
+        world=world,
+        sensor_config=config,
+        settings=QSettings(str(tmp_path / "live.ini"), QSettings.Format.IniFormat),
+    )
+    entered, release = Event(), Event()
+    original = window.sensor.acquire_array_pulse_train
+
+    def gated(*args, **kwargs):
+        entered.set()
+        if not release.wait(10):
+            raise TimeoutError("test failed to release acquisition gate")
+        return original(*args, **kwargs)
+
+    window.sensor.acquire_array_pulse_train = gated
+    heartbeat = []
+    try:
+        window._request_live_step()
+        assert entered.wait(5)
+        QTimer.singleShot(0, lambda: heartbeat.append(window.last_frame_result is None))
+        deadline = perf_counter() + 5
+        while not heartbeat and perf_counter() < deadline:
+            app.processEvents()
+        assert heartbeat == [True]
+        release.set()
+        while window.last_frame_result is None and perf_counter() < deadline:
+            app.processEvents()
+            sleep(0.005)
+        assert window.last_frame_result is not None
+    finally:
+        release.set()
+        window._executor.shutdown(wait=True)
+        window.close()
+        app.processEvents()

@@ -30,6 +30,8 @@ def test_beam_patterns_are_amplitude_gains_with_physical_half_power_width():
 
 
 def test_scan_modes_follow_simulation_time_not_wall_clock():
+    stationary = ScanScheduler(ScanConfig(rate_rad_s=0))
+    assert stationary.boresight(10) == 0
     fixed = ScanScheduler(ScanConfig(boresight_rad=0.2))
     assert fixed.boresight(123) == 0.2
     rotating = ScanScheduler(ScanConfig(kind="rotation", rate_rad_s=1))

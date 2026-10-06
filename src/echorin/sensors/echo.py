@@ -27,7 +27,7 @@ from echorin.sensors.base import (
 from echorin.sensors.beam_pattern import BeamConfig
 from echorin.sensors.scan import ScanScheduler
 from echorin.signals.noise import add_awgn
-from echorin.signals.propagation import delayed_echo
+from echorin.signals.propagation import amplitude_at_range, delayed_echo, sample_delay
 from echorin.signals.waveform import WaveformKind, generate_waveform
 from echorin.simulation.kinematics import relative_geometry
 
@@ -82,16 +82,20 @@ class SyntheticMonostaticSensor(Sensor):
         for tone in environment.interference:
             if abs(tone.frequency_hz) >= self.config.sample_rate_hz / 2:
                 raise ValueError("interference exceeds receiver Nyquist")
-        self.environment = environment
-        self.beam = beam
-        self._noise = environment.receiver_noise.model(self.config.noise_model)
-        self._beam_pattern = beam.pattern()
-        self._scan = ScanScheduler(beam.scan)
         field_rng = np.random.default_rng(
             np.random.SeedSequence(self._random_seed, spawn_key=(1,))
         )
-        self._field = build_field(
+        field = build_field(
             environment, self.config.max_range_m, self._environment_origin, field_rng
+        )
+        noise = environment.receiver_noise.model(self.config.noise_model)
+        pattern, scan = beam.pattern(), ScanScheduler(beam.scan)
+        self.environment, self.beam = environment, beam
+        self._noise, self._beam_pattern, self._scan, self._field = (
+            noise,
+            pattern,
+            scan,
+            field,
         )
 
     def reset(self) -> None:
@@ -278,15 +282,22 @@ class SyntheticMonostaticSensor(Sensor):
                     * 10
                     ** (-self.environment.absorption_db_per_m * path.path_length_m / 20)
                 )
-                response = self._coherent_target_return(
-                    transmitted,
+                amplitude = amplitude_at_range(
                     apparent_range,
-                    geometry.radial_velocity_mps,
                     target.reflectivity * scale,
-                    pulse_count,
+                    exponent=self.environment.attenuation_exponent,
                 )
+                pulse = (transmitted * amplitude).astype(np.complex128)
+                slow_phase = self._doppler_phase(
+                    geometry.radial_velocity_mps, pulse_count
+                )
+                response = slow_phase[:, None] * pulse[None, :]
+                delay = sample_delay(apparent_range, self.config)
                 extra_phase = path.phase_rad + getattr(target, "phase_rad", 0.0)
-                received += (
+                # Only the occupied pulse span contributes. This preserves the
+                # dense reference samples but avoids a full array-sized zero
+                # temporary for every scatterer/secondary path.
+                received[:, :, delay : delay + transmitted.size] += (
                     phase[:, None, None]
                     * response[None, :, :]
                     * np.exp(1j * extra_phase)
@@ -308,6 +319,11 @@ class SyntheticMonostaticSensor(Sensor):
             if np.any(abs(instantaneous) >= self.config.sample_rate_hz / 2):
                 raise ValueError("drifting interference exceeds receiver Nyquist")
             values = tone.samples(times, complex_output=np.iscomplexobj(result))
+            if tone.arrival_angle_rad is not None:
+                values *= self._beam_pattern.gain(
+                    tone.arrival_angle_rad - self._scan.boresight(timestamp_s),
+                    tone.frequency_hz,
+                )
             if result.ndim == 3 and tone.arrival_angle_rad is not None:
                 direction = np.array(
                     [np.cos(tone.arrival_angle_rad), np.sin(tone.arrival_angle_rad)]
@@ -318,13 +334,16 @@ class SyntheticMonostaticSensor(Sensor):
                         self.array_geometry.reference_element
                     ]
                 )
-                spatial_cycles = (
-                    (relative @ direction)
-                    * tone.frequency_hz
-                    / self.config.propagation_speed_mps
+                delays = ((relative @ direction) / self.config.propagation_speed_mps)[
+                    :, None, None
+                ]
+                # Evaluate phase(t + delay) - phase(t) analytically, avoiding
+                # cancellation when absolute carrier phase is very large.
+                cycles = instantaneous[None, :, :] * delays + (
+                    0.5 * tone.drift_hz_s * delays**2
                 )
-                phase = np.exp(2j * np.pi * spatial_cycles)
-                values = phase[:, None, None] * values[None, :, :]
+                phase = np.exp(2j * np.pi * cycles)
+                values = phase * values[None, :, :]
             result += values
         if result.ndim < 3 and self.environment.receiver_noise.kind == "correlated":
             return add_awgn(result, self.config.noise_model, self._rng)
@@ -349,11 +368,7 @@ class SyntheticMonostaticSensor(Sensor):
         reflectivity: float,
         pulse_count: int,
     ) -> NDArray[np.complex128]:
-        doppler_hz = float(
-            radial_velocity_to_doppler_hz(radial_velocity_mps, self.config)
-        )
-        if abs(doppler_hz) >= self.config.prf_hz / 2.0:
-            raise ValueError("target Doppler exceeds the unambiguous Doppler interval")
+        phase = self._doppler_phase(radial_velocity_mps, pulse_count)
         echo = delayed_echo(
             transmitted,
             range_m,
@@ -361,6 +376,16 @@ class SyntheticMonostaticSensor(Sensor):
             reflectivity=reflectivity,
             attenuation_exponent=self.environment.attenuation_exponent,
         ).astype(np.complex128)
-        slow_time_s = np.arange(pulse_count, dtype=np.float64) / self.config.prf_hz
-        phase = np.exp(1j * 2.0 * np.pi * doppler_hz * slow_time_s)
         return np.asarray(phase[:, None] * echo[None, :], dtype=np.complex128)
+
+    def _doppler_phase(
+        self, radial_velocity_mps: float, pulse_count: int
+    ) -> NDArray[np.complex128]:
+        """Shared coherent phase law for compact and dense reference synthesis."""
+        doppler_hz = float(
+            radial_velocity_to_doppler_hz(radial_velocity_mps, self.config)
+        )
+        if abs(doppler_hz) >= self.config.prf_hz / 2.0:
+            raise ValueError("target Doppler exceeds the unambiguous Doppler interval")
+        slow_time_s = np.arange(pulse_count, dtype=np.float64) / self.config.prf_hz
+        return np.exp(1j * 2.0 * np.pi * doppler_hz * slow_time_s)

@@ -70,6 +70,13 @@ class NetworkControls(QWidget):
             json.dumps(platforms_to_data(platforms), indent=2)
         )
         self.error_label.clear()
+        self.preset_combo.setCurrentText(
+            "Multistatic"
+            if len(sources) > 1
+            else "Bistatic"
+            if platforms
+            else "Monostatic"
+        )
         with QSignalBlocker(self.source_combo):
             self.source_combo.clear()
             for source in sources:

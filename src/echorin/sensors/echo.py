@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from echorin.config import SensorConfig, SensorMode
 from echorin.dsp.doppler import radial_velocity_to_doppler_hz
 from echorin.environment.config import EnvironmentConfig
-from echorin.environment.field import build_field
+from echorin.environment.field import FieldReturn, build_field
 from echorin.models.geometry import SensorPose
 from echorin.propagation.geometry import path_geometry
 from echorin.propagation.multipath import expand_paths
@@ -113,7 +113,18 @@ class SyntheticMonostaticSensor(Sensor):
     @property
     def is_bistatic(self) -> bool:
         """Whether two independent poses require generalized measurement axes."""
-        return self.transmitter_pose is not None and self.transmitter_pose != self.pose
+        if self.transmitter_pose is None:
+            return False
+        return any(
+            getattr(self.transmitter_pose, key) != getattr(self.pose, key)
+            for key in ("x_m", "y_m", "vx_mps", "vy_mps")
+        )
+
+    def set_environment_field(
+        self, field: tuple[FieldReturn, ...], origin: SensorPose
+    ) -> None:
+        """Use a shared persistent network field before acquisition begins."""
+        self._field, self._environment_origin = field, origin
 
     def acquire(
         self, targets: Iterable[ReflectiveTarget], timestamp_s: float
@@ -280,7 +291,11 @@ class SyntheticMonostaticSensor(Sensor):
                 - self.array_geometry.orientation_rad
             )
             if self.transmitter_beam is not None:
-                transmit_angle += self.array_geometry.orientation_rad
+                transmit_angle = (
+                    geometry.bearing_rad
+                    - (self.transmitter_pose or self.pose).heading_rad
+                    - self.transmitter_orientation_rad
+                )
             if self.is_bistatic:
                 g = path_geometry(
                     self.transmitter_pose,

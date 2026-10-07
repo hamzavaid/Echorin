@@ -100,6 +100,22 @@ class InspectionModel:
                 else "Unavailable"
             )
         self.selected_kind = "detection"
+        if detection.path_length_m is not None:
+            priority = (
+                "Timestamp",
+                "Emitter",
+                "Receiver",
+                "Range",
+                "Total path length",
+                "Path rate",
+                "Bearing",
+                "Radial velocity",
+                "Cartesian X",
+                "Cartesian Y",
+            )
+            fields = {
+                name: fields[name] for name in priority if name in fields
+            } | fields
         self.selected_id = index
         self.current = InspectionDetails(f"Detection {index + 1}", fields)
         return self.current

@@ -93,6 +93,9 @@ class PpiView(QWidget):
         self.device_label_items: dict[str, pg.TextItem] = {}
         self.device_heading_items: dict[str, pg.PlotDataItem] = {}
         self.device_beam_items: dict[str, pg.PlotDataItem] = {}
+        self._device_directional: dict[str, bool] = {}
+        self.device_trail_items: dict[str, pg.PlotDataItem] = {}
+        self._platform_trail_visible = True
         self.transmitter_item = pg.ScatterPlotItem(
             symbol="t", size=13, pen="y", brush="#ffd166"
         )
@@ -168,7 +171,10 @@ class PpiView(QWidget):
             )
 
     def set_platform_trail_visible(self, visible: bool) -> None:
+        self._platform_trail_visible = visible
         self.platform_trail_item.setVisible(visible)
+        for item in self.device_trail_items.values():
+            item.setVisible(visible)
 
     def set_beam(
         self,
@@ -198,14 +204,28 @@ class PpiView(QWidget):
         self._beam_visible = visible
         for item in self.beam_items:
             item.setVisible(visible and self._beam_directional)
-        for item in self.device_beam_items.values():
-            item.setVisible(visible)
+        for key, item in self.device_beam_items.items():
+            item.setVisible(visible and self._device_directional.get(key, False))
 
     def set_devices(
-        self, platforms: tuple[SensorPlatform, ...], selected: tuple[str, str] | None
+        self,
+        platforms: tuple[SensorPlatform, ...],
+        selected: tuple[str, str] | None,
+        histories: dict[str, tuple[tuple[float, float], ...]] | None = None,
     ) -> None:
         """Draw known mounted TX/RX positions/headings, never inferred truth."""
         devices = []
+        histories = histories or {}
+        for key in set(self.device_trail_items) - set(histories):
+            self.plot.removeItem(self.device_trail_items.pop(key))
+        for key, points in histories.items():
+            if key not in self.device_trail_items:
+                self.device_trail_items[key] = self.plot.plot(
+                    pen=pg.mkPen("#637f93", width=1)
+                )
+            history = np.asarray(points).reshape(-1, 2)
+            self.device_trail_items[key].setData(history[:, 0], history[:, 1])
+            self.device_trail_items[key].setVisible(self._platform_trail_visible)
         for platform in platforms:
             devices.extend(
                 (e.emitter_id, "TX", platform.emitter_pose(e), e.beam, 0)
@@ -222,6 +242,10 @@ class PpiView(QWidget):
                 for r in platform.receivers
             )
         active = {f"{kind}:{key}" for key, kind, _, _, _ in devices}
+        self._device_directional = {
+            f"{kind}:{key}": beam.kind != "isotropic"
+            for key, kind, _, beam, _ in devices
+        }
         for collection in (
             self.device_label_items,
             self.device_heading_items,
@@ -236,7 +260,9 @@ class PpiView(QWidget):
             identity = f"{kind}:{key}"
             color = "#ffd166" if kind == "TX" else "#59d9ed"
             if identity not in self.device_label_items:
-                label = pg.TextItem(anchor=(0, 1), color=color)
+                label = pg.TextItem(
+                    anchor=(1, 1) if kind == "TX" else (0, 1), color=color
+                )
                 self.plot.addItem(label)
                 self.device_label_items[identity] = label
                 self.device_heading_items[identity] = self.plot.plot(pen=color)

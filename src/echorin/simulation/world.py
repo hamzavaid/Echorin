@@ -14,7 +14,7 @@ from echorin.environment.config import EnvironmentConfig
 from echorin.models import SensorPose
 from echorin.models.platform import MountTransform, PlatformState
 from echorin.sensors.beam_pattern import BeamConfig
-from echorin.sensors.components import SensorPlatform
+from echorin.sensors.components import SensorPlatform, validate_platforms
 from echorin.simulation.kinematics import relative_geometry
 from echorin.simulation.target import Target
 from echorin.simulation.trajectories import PlatformTrajectory
@@ -54,9 +54,12 @@ class World:
         self._targets: dict[str, Target] = {}
         self.time_s = self.platform_state.timestamp_s
         self.sensor_platforms = tuple(sensor_platforms)
+        if self.sensor_platforms:
+            validate_platforms(self.sensor_platforms)
         if any(p.state.timestamp_s != self.time_s for p in self.sensor_platforms):
             raise ValueError("network platform timestamp must match world time")
         self._initial_sensor_platforms = deepcopy(self.sensor_platforms)
+        self._reset_network_history()
         self._platform_history: list[tuple[float, float]] = [
             tuple(float(x) for x in self.platform_state.position_m)
         ]
@@ -114,6 +117,20 @@ class World:
             for p in self._initial_sensor_platforms
         )
 
+    def _reset_network_history(self) -> None:
+        self._sensor_platform_histories = {
+            p.platform_id: [tuple(float(x) for x in p.state.position_m)]
+            for p in self.sensor_platforms
+        }
+
+    @property
+    def sensor_platform_histories(self) -> dict[str, tuple[tuple[float, float], ...]]:
+        """Bounded public body-platform paths, independent of target truth."""
+        return {
+            key: tuple(points)
+            for key, points in self._sensor_platform_histories.items()
+        }
+
     def add_target(self, target: Target) -> None:
         """Add a uniquely identified target."""
         if target.target_id in self._targets:
@@ -155,6 +172,10 @@ class World:
             target.advance(dt_s)
         self.platform_state = next_platform
         self.sensor_platforms = next_network
+        for p in self.sensor_platforms:
+            history = self._sensor_platform_histories[p.platform_id]
+            history.append(tuple(float(x) for x in p.state.position_m))
+            del history[:-2000]
         self.time_s += dt_s
         self._platform_history.append(
             tuple(float(x) for x in self.platform_state.position_m)
@@ -173,6 +194,7 @@ class World:
         )
         self._initial_sensor_platforms = deepcopy(self.sensor_platforms)
         self.time_s = 0.0
+        self._reset_network_history()
         self._platform_history = [
             tuple(float(x) for x in self.platform_state.position_m)
         ]
@@ -183,6 +205,7 @@ class World:
         self.platform_state = deepcopy(self._initial_platform_state)
         self.sensor_platforms = deepcopy(self._initial_sensor_platforms)
         self.time_s = self.platform_state.timestamp_s
+        self._reset_network_history()
         self._platform_history = [
             tuple(float(x) for x in self.platform_state.position_m)
         ]

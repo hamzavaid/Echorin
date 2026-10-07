@@ -861,7 +861,13 @@ class MainWindow(QMainWindow):
         array_orientation = self.sensor.array_geometry.orientation_rad
         self.ppi_view.set_platform(
             pose,
-            self.world.platform_history,
+            (
+                self.world.sensor_platform_histories[
+                    self.sensor_network.links[self.selected_link].receiver_platform_id
+                ]
+                if self.sensor_network
+                else self.world.platform_history
+            ),
             array_orientation,
         )
         beam = self.sensor.beam
@@ -871,7 +877,11 @@ class MainWindow(QMainWindow):
             beam.display_width_rad,
             beam.kind != "isotropic",
         )
-        self.ppi_view.set_devices(self.world.sensor_platforms, self.selected_link)
+        self.ppi_view.set_devices(
+            self.world.sensor_platforms,
+            self.selected_link,
+            self.world.sensor_platform_histories,
+        )
         if update_editor:
             self.target_editor.set_targets(self.world.targets)
         self.statusBar().showMessage(
@@ -900,6 +910,13 @@ class MainWindow(QMainWindow):
         self.sensor = self.sensor_network.links[self.selected_link].sensor
 
     def _refresh_network_controls(self) -> None:
+        self.platform_controls.setEnabled(self.sensor_network is None)
+        self.platform_controls.setToolTip(
+            "Legacy platform controls; edit network platforms in "
+            "Transmitters / Receivers"
+            if self.sensor_network
+            else ""
+        )
         self.network_controls.set_configuration(
             self.world.sensor_platforms,
             list(self.sensor_network.links) if self.sensor_network else [],

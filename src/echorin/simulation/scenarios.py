@@ -67,6 +67,7 @@ def bistatic_scenario(config: SensorConfig, *, multistatic: bool = False) -> Wor
     """Moving synchronized TX/RX reference, scaled to the selected medium."""
     scale = config.max_range_m / 10
     speed = config.propagation_speed_mps / config.carrier_frequency_hz * config.prf_hz
+    speed = min(speed, 7500.0)  # Cap default Radar target motion at 300 m/s.
     trajectory = PlatformTrajectory(TrajectoryKind.CONSTANT_VELOCITY)
 
     def state(x, y, vx, vy):

@@ -1,5 +1,6 @@
 """Explicit mounted transmitter/receiver composition without DSP or Qt."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -11,6 +12,8 @@ from echorin.models.platform import MountTransform, PlatformState
 from echorin.sensors.beam_pattern import BeamConfig
 from echorin.signals.waveform import WaveformKind
 from echorin.simulation.trajectories import PlatformTrajectory
+
+MAX_SENSOR_LINKS = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,3 +96,22 @@ class SensorPlatform:
             (Emitter(f"{platform_id}-tx", config),),
             (Receiver(f"{platform_id}-rx", config),),
         )
+
+
+def validate_platforms(platforms: Sequence[SensorPlatform]) -> None:
+    """Validate global identities, synchronized epochs and bounded link work."""
+    for ids in (
+        [p.platform_id for p in platforms],
+        [d.emitter_id for p in platforms for d in p.emitters],
+        [d.receiver_id for p in platforms for d in p.receivers],
+    ):
+        if len(set(ids)) != len(ids):
+            raise ValueError("platform and device IDs must be globally unique")
+    transmitters = sum(len(p.emitters) for p in platforms)
+    receivers = sum(len(p.receivers) for p in platforms)
+    if not transmitters or not receivers:
+        raise ValueError("network requires an emitter and a receiver")
+    if transmitters * receivers > MAX_SENSOR_LINKS:
+        raise ValueError(f"network exceeds {MAX_SENSOR_LINKS}-link work limit")
+    if len({p.state.timestamp_s for p in platforms}) != 1:
+        raise ValueError("network platform timestamps must match")

@@ -3,18 +3,25 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
+
 from echorin.application.frame_pipeline import FrameComputation, process_frame
 from echorin.dsp.cfar import CaCfarDetector, CfarConfig
 from echorin.dsp.range_processing import SignalProcessor
 from echorin.environment.config import EnvironmentConfig
+from echorin.environment.field import build_field
 from echorin.sensors.base import ReflectiveTarget
-from echorin.sensors.components import Emitter, Receiver, SensorPlatform
+from echorin.sensors.components import (
+    Emitter,
+    Receiver,
+    SensorPlatform,
+    validate_platforms,
+)
 from echorin.sensors.echo import SyntheticMonostaticSensor
 from echorin.sensors.factory import create_link_sensor
 from echorin.tracking.tracker import MultiTargetTracker, TrackerConfig
 
 LinkKey = tuple[str, str]
-MAX_LINKS = 16
 
 
 @dataclass(slots=True)
@@ -31,25 +38,6 @@ class SensorLink:
     tracker: MultiTargetTracker
 
 
-def validate_platforms(platforms: Sequence[SensorPlatform]) -> None:
-    """Validate identity and work bounds before constructing raw buffers."""
-    for ids in (
-        [p.platform_id for p in platforms],
-        [d.emitter_id for p in platforms for d in p.emitters],
-        [d.receiver_id for p in platforms for d in p.receivers],
-    ):
-        if len(set(ids)) != len(ids):
-            raise ValueError("platform and device IDs must be globally unique")
-    transmitters = sum(len(p.emitters) for p in platforms)
-    receivers = sum(len(p.receivers) for p in platforms)
-    if not transmitters or not receivers:
-        raise ValueError("network requires an emitter and a receiver")
-    if transmitters * receivers > MAX_LINKS:
-        raise ValueError(f"network exceeds {MAX_LINKS}-link work limit")
-    if len({p.state.timestamp_s for p in platforms}) != 1:
-        raise ValueError("network platform timestamps must match")
-
-
 class SensorNetwork:
     """Time-division transmitter slots, observed by every configured receiver.
 
@@ -64,7 +52,7 @@ class SensorNetwork:
         environment: EnvironmentConfig | None = None,
         *,
         seed: int = 7,
-    ):
+    ) -> None:
         validate_platforms(platforms)
         self.links: dict[LinkKey, SensorLink] = {}
         for tx_platform in platforms:
@@ -115,9 +103,15 @@ class SensorNetwork:
         # A network sees one world field, not a newly seeded set of nuisance
         # sources for each transmitter slot. Noise streams remain independent.
         reference = next(iter(self.links.values())).sensor
+        origin = reference.pose
+        field = build_field(
+            environment or EnvironmentConfig(),
+            max(link.sensor.config.max_range_m for link in self.links.values()),
+            origin,
+            np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(1,))),
+        )
         for link in self.links.values():
-            link.sensor._field = reference._field
-            link.sensor._environment_origin = reference._environment_origin
+            link.sensor.set_environment_field(field, origin)
 
     def sync_poses(self, platforms: Sequence[SensorPlatform]) -> None:
         """Apply a world epoch before dispatch; never during worker execution."""

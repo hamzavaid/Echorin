@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from math import isfinite
 
 from echorin.config import SensorConfig, SensorMode
 from echorin.environment.config import EnvironmentConfig
@@ -67,6 +68,12 @@ def create_link_sensor(
         "prf_hz",
         "propagation_speed_mps",
     )
+    for pose in (transmitter_pose, receiver_pose):
+        if not all(
+            isfinite(getattr(pose, key))
+            for key in ("x_m", "y_m", "vx_mps", "vy_mps", "heading_rad", "timestamp_s")
+        ):
+            raise ValueError("device pose must be finite")
     if any(getattr(emitter.config, k) != getattr(receiver.config, k) for k in fields):
         raise ValueError("TX/RX must have compatible medium and waveform sampling")
     environment = environment or EnvironmentConfig()

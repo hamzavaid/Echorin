@@ -9,7 +9,12 @@ from echorin.config import ArrayConfig, NoiseConfig, SensorConfig, SensorMode
 from echorin.environment.config import ReceiverNoiseConfig
 from echorin.environment.serialization import beam_from_dict
 from echorin.models.platform import MountTransform, PlatformState
-from echorin.sensors.components import Emitter, Receiver, SensorPlatform
+from echorin.sensors.components import (
+    Emitter,
+    Receiver,
+    SensorPlatform,
+    validate_platforms,
+)
 from echorin.simulation.trajectories import PlatformTrajectory, TrajectoryKind, Waypoint
 
 
@@ -64,4 +69,6 @@ def platforms_from_data(data: list[dict[str, Any]]) -> tuple[SensorPlatform, ...
             receivers.append(Receiver(**device))
         values["emitters"], values["receivers"] = tuple(emitters), tuple(receivers)
         platforms.append(SensorPlatform(**values))
+    if platforms:
+        validate_platforms(platforms)
     return tuple(platforms)

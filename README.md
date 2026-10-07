@@ -152,9 +152,11 @@ python benchmarks/run_tracking_benchmark.py
 python benchmarks/run_array_benchmark.py
 python benchmarks/run_platform_benchmark.py
 python benchmarks/run_environment_benchmark.py
+python benchmarks/run_bistatic_benchmark.py
 python -m pip install -e ".[release]"
 python examples/capture_demo.py
 python examples/capture_environment_demo.py
+python examples/capture_bistatic_demo.py
 ```
 
 ## Documentation
@@ -165,6 +167,7 @@ python examples/capture_environment_demo.py
 - [v1.2 release notes](docs/releases/v1.2.md)
 - [v1.3 release notes](docs/releases/v1.3.md)
 - [v1.4 release notes](docs/releases/v1.4.md)
+- [v1.5 release notes](docs/releases/v1.5.md)
 - [Array benchmark scenarios](docs/scenarios.md)
 - [Tracking benchmark results](benchmarks/tracking_results.json)
 
@@ -177,4 +180,7 @@ array phase model, and a stop-and-hop coherent-pulse model. A linear array has
 front/back ambiguity and the initial scan covers receiver-relative -90 to +90
 degrees. Optional v1.4 models add phenomenological clutter/reverberation,
 secondary paths and analytical beam patterns; they are not calibrated terrain,
-ocean, antenna or hardware solvers. No bistatic processing or ray tracing is included.
+ocean, antenna or hardware solvers. v1.5 adds simplified moving bistatic geometry
+and time-division multistatic acquisition, with source-scoped tracks. No ray
+tracing, simultaneous-source separation, passive RF capture or sensor fusion is
+included; see the v1.5 notes for exact geometry/scheduling assumptions.

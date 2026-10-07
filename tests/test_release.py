@@ -238,6 +238,9 @@ def test_v14_release_docs_and_environment_evidence_are_public():
 
 
 def test_v15_release_docs_and_bistatic_evidence_are_public():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "No bistatic processing" not in readme
+    assert "python benchmarks/run_bistatic_benchmark.py" in readme
     notes = (ROOT / "docs" / "releases" / "v1.5.md").read_text(encoding="utf-8")
     for term in (
         "bistatic",

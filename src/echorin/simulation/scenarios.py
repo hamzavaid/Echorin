@@ -6,7 +6,11 @@ from math import cos, sin
 
 import numpy as np
 
+from echorin.config import SensorConfig
+from echorin.models.platform import PlatformState
+from echorin.sensors.components import Emitter, Receiver, SensorPlatform
 from echorin.simulation.target import Target
+from echorin.simulation.trajectories import PlatformTrajectory, TrajectoryKind
 from echorin.simulation.world import World
 
 
@@ -56,4 +60,50 @@ def crossing_targets(seed: int = 7) -> World:
                 reflectivity=0.8,
             ),
         ]
+    )
+
+
+def bistatic_scenario(config: SensorConfig, *, multistatic: bool = False) -> World:
+    """Moving synchronized TX/RX reference, scaled to the selected medium."""
+    scale = config.max_range_m / 10
+    speed = config.propagation_speed_mps / config.carrier_frequency_hz * config.prf_hz
+    trajectory = PlatformTrajectory(TrajectoryKind.CONSTANT_VELOCITY)
+
+    def state(x, y, vx, vy):
+        return PlatformState(np.array([x, y]), np.array([vx, vy]), np.zeros(2), 0, 0, 0)
+
+    platforms = [
+        SensorPlatform(
+            "transmitter",
+            state(-scale, 0, 0.01 * speed, 0),
+            (Emitter("tx-1", config),),
+            trajectory=trajectory,
+        ),
+        SensorPlatform(
+            "receiver",
+            state(0, 0, 0, 0.005 * speed),
+            receivers=(Receiver("rx-1", config),),
+            trajectory=trajectory,
+        ),
+    ]
+    if multistatic:
+        platforms.extend(
+            [
+                SensorPlatform(
+                    "transmitter-2",
+                    state(-scale, -scale, 0.008 * speed, 0),
+                    (Emitter("tx-2", config),),
+                    trajectory=trajectory,
+                ),
+                SensorPlatform(
+                    "receiver-2",
+                    state(0, -scale, 0.004 * speed, 0),
+                    receivers=(Receiver("rx-2", config),),
+                    trajectory=trajectory,
+                ),
+            ]
+        )
+    return World(
+        targets=(Target("reference", 3 * scale, scale, vx_mps=0.04 * speed),),
+        sensor_platforms=platforms,
     )

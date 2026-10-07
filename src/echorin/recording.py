@@ -21,6 +21,7 @@ from echorin.models.frame import FrameResult
 from echorin.models.geometry import SensorPose
 from echorin.models.platform import MountTransform, PlatformState
 from echorin.models.track import Track
+from echorin.sensors.serialization import platforms_from_data, platforms_to_data
 from echorin.simulation.target import Target
 from echorin.simulation.trajectories import PlatformTrajectory, TrajectoryKind, Waypoint
 from echorin.simulation.world import World
@@ -34,7 +35,7 @@ def save_scenario_json(
 ) -> None:
     """Serialize a complete repeatable scenario using public model fields."""
     payload = {
-        "schema_version": 3,
+        "schema_version": 4 if world.sensor_platforms else 3,
         "environment": asdict(world.environment_config),
         "beam": asdict(world.beam_config),
         "simulation": asdict(simulation_config),
@@ -71,6 +72,8 @@ def save_scenario_json(
         },
         "targets": [asdict(target) for target in world.targets],
     }
+    if world.sensor_platforms:
+        payload["sensor_platforms"] = platforms_to_data(world.sensor_platforms)
     Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
@@ -80,7 +83,7 @@ def load_scenario_json(
     """Load a scenario created by :func:`save_scenario_json`."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     version = payload.get("schema_version", 1)
-    if version not in (1, 2, 3):
+    if version not in (1, 2, 3, 4):
         raise ValueError(f"unsupported scenario schema version: {version}")
     sensor_data = dict(payload["sensor"])
     sensor_data["mode"] = SensorMode(sensor_data["mode"])
@@ -102,11 +105,14 @@ def load_scenario_json(
             sensor_mount=MountTransform(**platform["sensor_mount"]),
             array_config=ArrayConfig(**platform.get("array_config", {})),
             environment_config=environment_from_dict(payload.get("environment", {}))
-            if version == 3
+            if version >= 3
             else None,
             beam_config=beam_from_dict(payload.get("beam", {}))
-            if version == 3
+            if version >= 3
             else None,
+            sensor_platforms=platforms_from_data(payload["sensor_platforms"])
+            if version == 4
+            else (),
         )
     return (
         world,

@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from echorin.models.detection import Detection
+from echorin.models.geometry import SensorPose
 from echorin.models.track import Track, TrackStatus
 from echorin.tracking.association import associate_nearest_neighbor
 from echorin.tracking.kalman import ConstantVelocityKalmanFilter
@@ -69,6 +70,19 @@ def measurement_covariance_for_detection(
     bearing = detection.bearing_rad + heading
     radial = np.array([np.cos(bearing), np.sin(bearing)])
     transverse = np.array([-radial[1], radial[0]])
+    if detection.path_length_m is not None and detection.transmitter_pose is not None:
+        tx = detection.transmitter_pose
+        rx = detection.sensor_pose or SensorPose()
+        baseline = np.array([tx.x_m - rx.x_m, tx.y_m - rx.y_m])
+        r = detection.range_m
+        transmit_leg = float(np.linalg.norm(r * radial - baseline))
+        derivative = 1 + (r - baseline @ radial) / transmit_leg
+        dr_dangle = r * (baseline @ transverse) / transmit_leg / derivative
+        length_column = radial / derivative
+        angle_column = r * transverse + dr_dangle * radial
+        return (2 * range_std_m) ** 2 * np.outer(
+            length_column, length_column
+        ) + bearing_std_rad**2 * np.outer(angle_column, angle_column)
     transverse_std_m = max(range_std_m, detection.range_m * bearing_std_rad)
     return range_std_m**2 * np.outer(radial, radial) + transverse_std_m**2 * np.outer(
         transverse, transverse

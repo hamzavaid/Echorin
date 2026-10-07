@@ -25,6 +25,8 @@ class RangeAngleProduct:
     timestamp_s: float
     receiver_id: str = "receiver-0"
     receiver_pose: SensorPose | None = None
+    emitter_id: str | None = None
+    is_bistatic: bool = False
 
     def __post_init__(self) -> None:
         if self.power.shape != (len(self.bearings_rad), len(self.ranges_m)):

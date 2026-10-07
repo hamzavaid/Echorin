@@ -21,6 +21,14 @@ class DopplerProduct:
     radial_velocity_mps: NDArray[np.float64]
     spectrum: NDArray[np.complex128]
     ranges_m: NDArray[np.float64] | None = None
+    receiver_id: str = "receiver-0"
+    emitter_id: str | None = None
+    is_bistatic: bool = False
+
+    @property
+    def path_rate_mps(self) -> NDArray[np.float64]:
+        """Total path-rate bins; legacy velocity axis is half-path rate."""
+        return 2 * self.radial_velocity_mps
 
     def __post_init__(self) -> None:
         if self.spectrum.ndim != 2:

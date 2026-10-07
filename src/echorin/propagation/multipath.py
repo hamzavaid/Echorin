@@ -1,4 +1,4 @@
-"""Explicit monostatic path expansion; no bistatic processing."""
+"""Explicit generalized path expansion with a compatible monostatic wrapper."""
 
 from dataclasses import dataclass
 from math import isfinite
@@ -40,6 +40,8 @@ class PropagationPath:
     phase_rad: float = 0.0
     angle_offset_rad: float = 0.0
     path_kind: str = "direct"
+    transmitter_id: str | None = None
+    receiver_id: str | None = None
 
 
 def expand_paths(

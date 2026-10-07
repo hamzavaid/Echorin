@@ -69,6 +69,9 @@ class ArrayPulseData:
     receiver_pose: SensorPose
     array_geometry: ArrayGeometry
     receiver_id: str = "receiver-0"
+    emitter_id: str | None = None
+    transmitter_pose: SensorPose | None = None
+    is_bistatic: bool = False
 
 
 class Sensor(ABC):

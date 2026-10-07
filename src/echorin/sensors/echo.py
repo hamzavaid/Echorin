@@ -1,8 +1,9 @@
-"""Shared monostatic echo sensor mechanics for radar and sonar."""
+"""Shared active TX-target-RX echo mechanics for radar and sonar."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from math import pi
 
 import numpy as np
@@ -13,6 +14,7 @@ from echorin.dsp.doppler import radial_velocity_to_doppler_hz
 from echorin.environment.config import EnvironmentConfig
 from echorin.environment.field import build_field
 from echorin.models.geometry import SensorPose
+from echorin.propagation.geometry import path_geometry
 from echorin.propagation.multipath import expand_paths
 from echorin.sensors.array import ArrayGeometry, uniform_linear_array
 from echorin.sensors.base import (
@@ -54,6 +56,12 @@ class SyntheticMonostaticSensor(Sensor):
             raise ValueError("bearing_noise_std_rad must be nonnegative")
         self.config = config
         self.pose = pose or SensorPose()
+        self.transmitter_pose: SensorPose | None = None
+        self.transmitter_beam: BeamConfig | None = None
+        self.transmitter_orientation_rad = 0.0
+        self.transmit_power_scale = 1.0
+        self.emitter_id: str | None = None
+        self.receiver_id = "receiver-0"
         self.waveform_kind = waveform_kind
         self.bearing_noise_std_rad = bearing_noise_std_rad
         wavelength = config.propagation_speed_mps / config.carrier_frequency_hz
@@ -102,6 +110,11 @@ class SyntheticMonostaticSensor(Sensor):
         """Restore the seeded noise sequence for deterministic replay."""
         self._rng = np.random.default_rng(self._random_seed)
 
+    @property
+    def is_bistatic(self) -> bool:
+        """Whether two independent poses require generalized measurement axes."""
+        return self.transmitter_pose is not None and self.transmitter_pose != self.pose
+
     def acquire(
         self, targets: Iterable[ReflectiveTarget], timestamp_s: float
     ) -> SensorFrame:
@@ -118,7 +131,11 @@ class SyntheticMonostaticSensor(Sensor):
                     self.config,
                     reflectivity=target.reflectivity,
                 )
-        if self.environment != EnvironmentConfig() or self.beam != BeamConfig():
+        if (
+            self.environment != EnvironmentConfig()
+            or self.beam != BeamConfig()
+            or self.transmitter_pose is not None
+        ):
             noiseless = self._synthesize(targets, timestamp_s, 1)[0].real
         received = self._disturb(noiseless, timestamp_s)
         return SensorFrame(
@@ -210,6 +227,10 @@ class SyntheticMonostaticSensor(Sensor):
             self.config.carrier_frequency_hz,
             self.pose,
             self.array_geometry,
+            self.receiver_id,
+            self.emitter_id,
+            self.transmitter_pose or self.pose,
+            self.is_bistatic,
         )
 
     def _synthesize(
@@ -244,9 +265,39 @@ class SyntheticMonostaticSensor(Sensor):
             ),
         )
         boresight = self._scan.boresight(timestamp_s)
+        tx_beam = self.transmitter_beam or self.beam
+        tx_pattern = tx_beam.pattern()
+        tx_boresight = ScanScheduler(tx_beam.scan).boresight(timestamp_s)
         for target in sources:
             geometry = relative_geometry(self.pose, target)
-            if geometry.range_m > self.config.max_range_m:
+            # Preserve exact legacy arithmetic for co-located devices. Both
+            # branches use the same array accumulation and downstream DSP.
+            apparent_direct_range = geometry.range_m
+            equivalent_velocity = geometry.radial_velocity_mps
+            transmit_angle = (
+                geometry.bearing_rad
+                - self.pose.heading_rad
+                - self.array_geometry.orientation_rad
+            )
+            if self.transmitter_beam is not None:
+                transmit_angle += self.array_geometry.orientation_rad
+            if self.is_bistatic:
+                g = path_geometry(
+                    self.transmitter_pose,
+                    self.pose,
+                    (target.x_m, target.y_m),
+                    (target.vx_mps, target.vy_mps),
+                    self.config.propagation_speed_mps,
+                    self.config.carrier_frequency_hz,
+                )
+                apparent_direct_range = g.path_length_m / 2
+                equivalent_velocity = g.path_rate_mps / 2
+                transmit_angle = (
+                    g.transmitter_bearing_rad
+                    - self.transmitter_pose.heading_rad
+                    - self.transmitter_orientation_rad
+                )
+            if apparent_direct_range > self.config.max_range_m:
                 continue
             local_angle = (
                 geometry.bearing_rad
@@ -254,19 +305,22 @@ class SyntheticMonostaticSensor(Sensor):
                 - self.array_geometry.orientation_rad
             )
             for path in expand_paths(
-                geometry.range_m,
+                apparent_direct_range,
                 self.config.propagation_speed_mps,
                 self.environment.multipath,
             ):
+                path = replace(
+                    path, transmitter_id=self.emitter_id, receiver_id=self.receiver_id
+                )
                 apparent_range = path.path_length_m / 2
                 if apparent_range > self.config.max_range_m:
                     continue
                 angle = local_angle + path.angle_offset_rad
-                gain = (
-                    self._beam_pattern.gain(
-                        angle - boresight, self.config.carrier_frequency_hz
-                    )
-                    ** 2
+                gain = self._beam_pattern.gain(
+                    angle - boresight, self.config.carrier_frequency_hz
+                ) * tx_pattern.gain(
+                    transmit_angle + path.angle_offset_rad - tx_boresight,
+                    self.config.carrier_frequency_hz,
                 )
                 if gain == 0:
                     continue
@@ -278,6 +332,7 @@ class SyntheticMonostaticSensor(Sensor):
                 )
                 scale = (
                     gain
+                    * np.sqrt(self.transmit_power_scale)
                     * path.amplitude_scale
                     * 10
                     ** (-self.environment.absorption_db_per_m * path.path_length_m / 20)
@@ -287,10 +342,28 @@ class SyntheticMonostaticSensor(Sensor):
                     target.reflectivity * scale,
                     exponent=self.environment.attenuation_exponent,
                 )
+                if self.is_bistatic:
+                    extra_leg = (path.path_length_m - g.path_length_m) / 2
+                    # Each leg contributes half the configured amplitude
+                    # exponent. The legacy near-range cap applies per leg.
+                    amplitude = (
+                        target.reflectivity
+                        * scale
+                        * np.sqrt(
+                            amplitude_at_range(
+                                g.transmitter_range_m + extra_leg,
+                                1,
+                                exponent=self.environment.attenuation_exponent,
+                            )
+                            * amplitude_at_range(
+                                g.receiver_range_m + extra_leg,
+                                1,
+                                exponent=self.environment.attenuation_exponent,
+                            )
+                        )
+                    )
                 pulse = (transmitted * amplitude).astype(np.complex128)
-                slow_phase = self._doppler_phase(
-                    geometry.radial_velocity_mps, pulse_count
-                )
+                slow_phase = self._doppler_phase(equivalent_velocity, pulse_count)
                 response = slow_phase[:, None] * pulse[None, :]
                 delay = sample_delay(apparent_range, self.config)
                 extra_phase = path.phase_rad + getattr(target, "phase_rad", 0.0)

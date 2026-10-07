@@ -23,6 +23,15 @@ class Detection:
     source_angle_bin: int | None = None
     receiver_id: str = "receiver-0"
     sensor_pose: SensorPose | None = None
+    emitter_id: str | None = None
+    path_length_m: float | None = None
+    path_rate_mps: float | None = None
+    transmitter_pose: SensorPose | None = None
+
+    @property
+    def display_range_m(self) -> float:
+        """Matched-filter half-path coordinate, distinct from receiver range."""
+        return self.range_m if self.path_length_m is None else self.path_length_m / 2
 
     def __post_init__(self) -> None:
         if self.range_m < 0.0:

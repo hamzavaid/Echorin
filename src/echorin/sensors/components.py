@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from echorin.config import ArrayConfig, SensorConfig
+from echorin.environment.config import ReceiverNoiseConfig
 from echorin.models.geometry import SensorPose
 from echorin.models.platform import MountTransform, PlatformState
 from echorin.sensors.beam_pattern import BeamConfig
@@ -44,6 +45,7 @@ class Receiver:
     mount: MountTransform = field(default_factory=MountTransform)
     array_config: ArrayConfig = field(default_factory=ArrayConfig)
     beam: BeamConfig = field(default_factory=BeamConfig)
+    noise_model: ReceiverNoiseConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.receiver_id.strip():

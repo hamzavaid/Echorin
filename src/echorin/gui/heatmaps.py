@@ -35,6 +35,7 @@ class RangeDopplerView(QWidget):
         super().__init__(parent)
         self.product: RangeDopplerImage | None = None
         self._axis_extent: tuple[float, float, float, float] | None = None
+        self.is_bistatic = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         controls = QGridLayout()
@@ -66,10 +67,12 @@ class RangeDopplerView(QWidget):
         self.plot.setLabel("left", "Radial velocity", units="m/s")
         self.image_item = pg.ImageItem(axisOrder="row-major")
         self.plot.addItem(self.image_item)
-        self.cursor_x = pg.InfiniteLine(angle=90, movable=False,
-                                        pen=pg.mkPen("w", width=1))
-        self.cursor_y = pg.InfiniteLine(angle=0, movable=False,
-                                        pen=pg.mkPen("w", width=1))
+        self.cursor_x = pg.InfiniteLine(
+            angle=90, movable=False, pen=pg.mkPen("w", width=1)
+        )
+        self.cursor_y = pg.InfiniteLine(
+            angle=0, movable=False, pen=pg.mkPen("w", width=1)
+        )
         self.plot.addItem(self.cursor_x)
         self.plot.addItem(self.cursor_y)
         self.cursor_x.hide()
@@ -101,14 +104,34 @@ class RangeDopplerView(QWidget):
     def set_product(self, product: DopplerProduct) -> None:
         """Display every processed range and velocity cell."""
         self.product = range_doppler_image(product)
+        self.is_bistatic = product.is_bistatic
+        self.plot.setLabel(
+            "bottom", "Half-path range" if product.is_bistatic else "Range", units="m"
+        )
+        self.plot.setLabel(
+            "left",
+            "Half-path rate" if product.is_bistatic else "Radial velocity",
+            units="m/s",
+        )
+        self.plot.setTitle(
+            f"{product.emitter_id or 'monostatic'} → {product.receiver_id}"
+        )
         x, y = self.product.ranges_m, self.product.velocities_mps
         dx, dy = float(x[1] - x[0]), float(y[1] - y[0])
         self.image_item.setRect(
-            QRectF(float(x[0] - dx / 2), float(y[0] - dy / 2),
-                   float(x[-1] - x[0] + dx), float(y[-1] - y[0] + dy))
+            QRectF(
+                float(x[0] - dx / 2),
+                float(y[0] - dy / 2),
+                float(x[-1] - x[0] + dx),
+                float(y[-1] - y[0] + dy),
+            )
         )
-        extent = (float(x[0] - dx / 2), float(x[-1] + dx / 2),
-                  float(y[0] - dy / 2), float(y[-1] + dy / 2))
+        extent = (
+            float(x[0] - dx / 2),
+            float(x[-1] + dx / 2),
+            float(y[0] - dy / 2),
+            float(y[-1] + dy / 2),
+        )
         if extent != self._axis_extent:
             for key, value in zip(self.limits, extent, strict=True):
                 spin = self.limits[key]
@@ -121,14 +144,27 @@ class RangeDopplerView(QWidget):
     def set_detections(self, detections: Iterable[Detection]) -> None:
         """Overlay physical range and velocity of sensor-derived detections."""
         finite = [
-            detection for detection in detections
-            if detection.radial_velocity_mps is not None
+            detection
+            for detection in detections
+            if (
+                detection.radial_velocity_mps is not None
+                or detection.path_rate_mps is not None
+            )
             and np.isfinite(detection.range_m)
-            and np.isfinite(detection.radial_velocity_mps)
+            and np.isfinite(
+                detection.radial_velocity_mps
+                if detection.radial_velocity_mps is not None
+                else detection.path_rate_mps
+            )
         ]
         self.detection_item.setData(
-            x=[detection.range_m for detection in finite],
-            y=[detection.radial_velocity_mps for detection in finite],
+            x=[detection.display_range_m for detection in finite],
+            y=[
+                d.radial_velocity_mps
+                if d.radial_velocity_mps is not None
+                else d.path_rate_mps / 2
+                for d in finite
+            ],
         )
 
     def clear_product(self) -> None:
@@ -159,7 +195,8 @@ class RangeDopplerView(QWidget):
         self.image_item.setImage(image, autoLevels=False, levels=levels)
         self.colorbar.setLevels(*levels)
         self.color_label.setText(
-            "Magnitude (dB re 1)" if self.scale_combo.currentText() == "dB"
+            "Magnitude (dB re 1)"
+            if self.scale_combo.currentText() == "dB"
             else "Magnitude (linear)"
         )
 
@@ -182,7 +219,9 @@ class RangeDopplerView(QWidget):
         cell: RangeDopplerCell = self.product.selected_cell(*indices)
         self.selection_item.setData(x=[cell.range_m], y=[cell.radial_velocity_mps])
         self.readout.setText(
-            f"Range {cell.range_m:.2f} m | velocity {cell.radial_velocity_mps:.3f} "
+            f"{'Half-path' if self.is_bistatic else 'Range'} {cell.range_m:.2f} m | "
+            f"{'half-path rate' if self.is_bistatic else 'velocity'} "
+            f"{cell.radial_velocity_mps:.3f} "
             f"m/s | magnitude {cell.magnitude:.4g} | {cell.level_db:.1f} dB "
             f"| bin ({cell.velocity_bin}, {cell.range_bin})"
         )
@@ -207,7 +246,9 @@ class RangeDopplerView(QWidget):
             self.cursor_x.show()
             self.cursor_y.show()
             self.readout.setText(
-                f"Range {cell.range_m:.2f} m | velocity "
+                f"{'Half-path' if self.is_bistatic else 'Range'} "
+                f"{cell.range_m:.2f} m | "
+                f"{'half-path rate' if self.is_bistatic else 'velocity'} "
                 f"{cell.radial_velocity_mps:.3f} m/s | {cell.level_db:.1f} dB"
             )
 

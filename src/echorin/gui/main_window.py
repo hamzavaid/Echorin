@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from echorin.application.frame_pipeline import FrameComputation, process_frame
+from echorin.application.frame_pipeline import FrameComputation, process_workspace_frame
+from echorin.application.sensor_network import SensorNetwork
 from echorin.config import (
     ArrayConfig,
     NoiseConfig,
@@ -36,6 +37,7 @@ from echorin.gui.controls import SimulationControls, TargetEditor, TrackTable
 from echorin.gui.environment_controls import EnvironmentControls
 from echorin.gui.heatmaps import RangeDopplerView
 from echorin.gui.inspectors import MeasurementTrackInspector
+from echorin.gui.network_controls import NetworkControls
 from echorin.gui.platform_controls import PlatformControls
 from echorin.gui.ppi_view import PpiView
 from echorin.gui.range_angle_view import RangeAngleView
@@ -48,11 +50,16 @@ from echorin.models.track import Track
 from echorin.sensors.array import geometry_for_config
 from echorin.sensors.base import SensorFrame
 from echorin.sensors.beam_pattern import BeamConfig
+from echorin.sensors.components import SensorPlatform
 from echorin.sensors.echo import SyntheticMonostaticSensor
 from echorin.sensors.factory import create_sensor
 from echorin.sensors.scan import ScanScheduler
 from echorin.signals.waveform import WaveformKind
-from echorin.simulation.scenarios import crossing_targets, single_stationary_target
+from echorin.simulation.scenarios import (
+    bistatic_scenario,
+    crossing_targets,
+    single_stationary_target,
+)
 from echorin.simulation.target import Target
 from echorin.simulation.trajectories import PlatformTrajectory
 from echorin.simulation.world import World
@@ -74,7 +81,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.world = world or crossing_targets()
         self.simulation_config = simulation_config or SimulationConfig()
-        self.sensor_config = sensor_config or SensorConfig()
+        network_receivers = [
+            r for p in self.world.sensor_platforms for r in p.receivers
+        ]
+        self.sensor_config = sensor_config or (
+            network_receivers[0].config if network_receivers else SensorConfig()
+        )
         self.sensor: SyntheticMonostaticSensor = create_sensor(
             self.sensor_config,
             self.world.sensor_pose,
@@ -109,8 +121,14 @@ class MainWindow(QMainWindow):
             )
         )
         self.last_detections: tuple[Detection, ...] = ()
+        self.sensor_network: SensorNetwork | None = None
+        self.selected_link: tuple[str, str] | None = None
+        self.last_source_frames: tuple[FrameComputation, ...] = ()
+        self._configure_network()
         self.last_tracks: tuple[Track, ...] = ()
-        self.doppler_pulse_count = 32
+        self.doppler_pulse_count = (
+            32 if self.sensor_config.mode is SensorMode.RADAR else 16
+        )
         self.last_doppler_product: DopplerProduct | None = None
         self.last_range_angle_product: RangeAngleProduct | None = None
         self.last_timing_metrics_s: dict[str, float] = {}
@@ -171,6 +189,15 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.LeftDockWidgetArea,
         )
         self.tabifyDockWidget(self.platform_dock, self.environment_dock)
+        self.network_controls = NetworkControls()
+        self.network_dock = self._add_dock(
+            "Transmitters / Receivers",
+            "network",
+            self.network_controls,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.environment_dock, self.network_dock)
+        self._refresh_network_controls()
         self.scenario_dock.raise_()
         self.tracks_dock = self._add_dock(
             "Tracks",
@@ -287,6 +314,9 @@ class MainWindow(QMainWindow):
         self.platform_controls.platform_changed.connect(self._set_platform)
         self.environment_controls.environment_changed.connect(self._set_environment)
         self.environment_controls.beam_toggled.connect(self.ppi_view.set_beam_visible)
+        self.network_controls.configuration_requested.connect(self._set_network)
+        self.network_controls.preset_requested.connect(self._set_network_preset)
+        self.network_controls.source_changed.connect(self._select_source)
         self.platform_controls.trail_toggled.connect(
             self.ppi_view.set_platform_trail_visible
         )
@@ -393,7 +423,7 @@ class MainWindow(QMainWindow):
         if self._inflight:
             return
         targets, timestamp_s, simulation_s, started = self._prepare_step()
-        result = process_frame(
+        result = process_workspace_frame(
             targets,
             timestamp_s,
             self.sensor,
@@ -401,6 +431,8 @@ class MainWindow(QMainWindow):
             self.cfar_detector,
             self.tracker,
             self.doppler_pulse_count,
+            self.sensor_network,
+            self.selected_link,
         )
         self._present_frame(result, simulation_s, started)
 
@@ -408,7 +440,10 @@ class MainWindow(QMainWindow):
         """Advance world time on the UI thread and snapshot target states."""
         started = perf_counter()
         self.world.advance(self.simulation_config.dt_s)
-        self.sensor.pose = self.world.sensor_pose
+        if self.sensor_network is None:
+            self.sensor.pose = self.world.sensor_pose
+        else:
+            self.sensor_network.sync_poses(self.world.sensor_platforms)
         targets = tuple(deepcopy(target) for target in self.world.targets)
         return targets, self.world.time_s, perf_counter() - started, started
 
@@ -420,7 +455,7 @@ class MainWindow(QMainWindow):
         self._inflight = True
         generation = self._frame_generation
         future = self._executor.submit(
-            process_frame,
+            process_workspace_frame,
             targets,
             timestamp_s,
             self.sensor,
@@ -428,6 +463,8 @@ class MainWindow(QMainWindow):
             self.cfar_detector,
             self.tracker,
             self.doppler_pulse_count,
+            self.sensor_network,
+            self.selected_link,
         )
         future.add_done_callback(
             lambda finished: self.frame_ready.emit(
@@ -463,6 +500,25 @@ class MainWindow(QMainWindow):
         self, result: FrameComputation, simulation_s: float, frame_started: float
     ) -> None:
         """Update Qt widgets from one completed numerical frame on the UI thread."""
+        if result.source_frames:
+            self.last_source_frames = result.source_frames
+            chosen = next(
+                (
+                    r
+                    for r in result.source_frames
+                    if (
+                        r.range_angle_product.emitter_id,
+                        r.range_angle_product.receiver_id,
+                    )
+                    == self.selected_link
+                ),
+                result,
+            )
+            result = replace(
+                chosen,
+                source_frames=result.source_frames,
+                timing_metrics_s=result.timing_metrics_s,
+            )
         self.last_sensor_frame = result.sensor_frame
         self.last_range_profile = result.range_profile
         self.last_cfar_result = result.cfar_result
@@ -514,14 +570,20 @@ class MainWindow(QMainWindow):
             range_profile=self.last_range_profile,
             range_doppler_product=self.last_doppler_product,
             range_angle_product=self.last_range_angle_product,
-            platform_states=[deepcopy(self.world.platform_state)],
+            platform_states=(
+                [deepcopy(p.state) for p in self.world.sensor_platforms]
+                or [deepcopy(self.world.platform_state)]
+            ),
             receiver_pose=result.range_angle_product.receiver_pose,
             detections=list(self.last_detections),
             tracks=list(self.last_tracks),
             timing_metrics_s=self.last_timing_metrics_s,
+            source_frames=list(result.source_frames),
         )
         self.diagnostics.setText(
             f"Mode: {self.sensor_config.mode.value.title()}\n"
+            f"Source: {self.selected_link or 'legacy monostatic'}\n"
+            f"Streams: {len(result.source_frames) or 1} (no fusion)\n"
             f"Noise: {self.world.environment_config.receiver_noise.kind}\n"
             f"Beam: {self.world.beam_config.kind} / "
             f"{self.world.beam_config.scan.kind}\n"
@@ -550,6 +612,7 @@ class MainWindow(QMainWindow):
         self.range_angle_view.clear_product()
         self.last_timing_metrics_s = {}
         self.last_frame_result = None
+        self.last_source_frames = ()
         self.diagnostics.setText("No frame processed yet")
         self.last_detections = ()
         self.last_tracks = ()
@@ -595,6 +658,13 @@ class MainWindow(QMainWindow):
                 random_seed=self.simulation_config.random_seed,
                 array_geometry=geometry_for_config(self.world.array_config, config),
             )
+            platforms = self._platforms_with_config(config)
+            if platforms:
+                SensorNetwork(
+                    platforms,
+                    self.world.environment_config,
+                    seed=self.simulation_config.random_seed,
+                )
         except ValueError as error:
             self.environment_controls.error_label.setText(str(error))
             self.controls.mode_combo.blockSignals(True)
@@ -606,6 +676,10 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self._invalidate_pending()
         self.sensor_config, self.sensor = config, sensor
+        self.world.update_device_configs(platforms)
+        self._configure_network()
+        self.last_source_frames = ()
+        self._refresh_network_controls()
         self.environment_controls.sensor_config = config
         self.signal_processor = SignalProcessor(self.sensor_config)
         self.cfar_detector = CaCfarDetector(
@@ -670,11 +744,26 @@ class MainWindow(QMainWindow):
             self.sensor_config,
             noise_model=NoiseConfig(standard_deviation=standard_deviation),
         )
+        if self.world.sensor_platforms:
+            self.world.update_device_configs(
+                self._platforms_with_config(self.sensor_config)
+            )
         self._rebuild_sensor_preserving_mode()
 
     def _set_waveform(self, waveform_text: str) -> None:
         waveform_kind = (
             WaveformKind.LFM if waveform_text == "LFM" else WaveformKind.RECTANGULAR
+        )
+        self.world.update_device_configs(
+            tuple(
+                replace(
+                    p,
+                    emitters=tuple(
+                        replace(e, waveform_kind=waveform_kind) for e in p.emitters
+                    ),
+                )
+                for p in self.world.sensor_platforms
+            )
         )
         self._rebuild_sensor_preserving_mode(waveform_kind=waveform_kind)
 
@@ -691,6 +780,8 @@ class MainWindow(QMainWindow):
         self.world.environment_config, self.world.beam_config = environment, beam
         self._rebuild_sensor_preserving_mode()
         self.platform_controls.set_from_world(self.world)
+        self.last_source_frames = ()
+        self._refresh_network_controls()
         self.ppi_view.set_targets(self.world.targets)
         self.target_editor.set_targets(self.world.targets)
 
@@ -710,6 +801,10 @@ class MainWindow(QMainWindow):
             ),
         )
         self.sensor.waveform_kind = waveform_kind
+        self.last_source_frames = ()
+        self._configure_network()
+        if hasattr(self, "network_controls"):
+            self._refresh_network_controls()
         self.tracker = MultiTargetTracker(
             replace(
                 self.tracker.config,
@@ -747,6 +842,12 @@ class MainWindow(QMainWindow):
                 environment,
                 beam,
             )
+            if self.world.sensor_platforms:
+                SensorNetwork(
+                    self.world.sensor_platforms,
+                    environment,
+                    seed=self.simulation_config.random_seed,
+                )
         except (ValueError, TypeError) as error:
             self.environment_controls.error_label.setText(str(error))
             return
@@ -756,19 +857,21 @@ class MainWindow(QMainWindow):
 
     def _refresh_world_views(self, update_editor: bool = True) -> None:
         self.ppi_view.set_targets(self.world.targets)
+        pose = self.sensor.pose if self.sensor_network else self.world.sensor_pose
+        array_orientation = self.sensor.array_geometry.orientation_rad
         self.ppi_view.set_platform(
-            self.world.sensor_pose,
+            pose,
             self.world.platform_history,
-            self.world.array_config.orientation_rad,
+            array_orientation,
         )
-        beam = self.world.beam_config
+        beam = self.sensor.beam
         self.ppi_view.set_beam(
-            self.world.sensor_pose,
-            self.world.array_config.orientation_rad
-            + ScanScheduler(beam.scan).boresight(self.world.time_s),
+            pose,
+            array_orientation + ScanScheduler(beam.scan).boresight(self.world.time_s),
             beam.display_width_rad,
             beam.kind != "isotropic",
         )
+        self.ppi_view.set_devices(self.world.sensor_platforms, self.selected_link)
         if update_editor:
             self.target_editor.set_targets(self.world.targets)
         self.statusBar().showMessage(
@@ -777,6 +880,107 @@ class MainWindow(QMainWindow):
             f" | {len(self.last_tracks)} tracks"
             f" | frame {self.last_timing_metrics_s.get('total_s', 0.0) * 1e3:.1f} ms"
         )
+
+    def _configure_network(self) -> None:
+        """Rebuild immutable link configs outside any in-flight worker snapshot."""
+        self.sensor_network = (
+            SensorNetwork(
+                self.world.sensor_platforms,
+                self.world.environment_config,
+                seed=self.simulation_config.random_seed,
+            )
+            if self.world.sensor_platforms
+            else None
+        )
+        if self.sensor_network is None:
+            self.selected_link = None
+            return
+        if self.selected_link not in self.sensor_network.links:
+            self.selected_link = next(iter(self.sensor_network.links))
+        self.sensor = self.sensor_network.links[self.selected_link].sensor
+
+    def _refresh_network_controls(self) -> None:
+        self.network_controls.set_configuration(
+            self.world.sensor_platforms,
+            list(self.sensor_network.links) if self.sensor_network else [],
+            self.selected_link,
+        )
+
+    def _platforms_with_config(
+        self, config: SensorConfig
+    ) -> tuple[SensorPlatform, ...]:
+        return tuple(
+            replace(
+                p,
+                emitters=tuple(replace(e, config=config) for e in p.emitters),
+                receivers=tuple(replace(r, config=config) for r in p.receivers),
+            )
+            for p in self.world.sensor_platforms
+        )
+
+    def _set_network(self, platforms: tuple[SensorPlatform, ...]) -> None:
+        """Validate the entire candidate before touching the running scenario."""
+        try:
+            if platforms:
+                candidate = SensorNetwork(
+                    platforms,
+                    self.world.environment_config,
+                    seed=self.simulation_config.random_seed,
+                )
+                if any(
+                    link.sensor.config.mode != self.sensor_config.mode
+                    for link in candidate.links.values()
+                ):
+                    raise ValueError(
+                        "device medium must match selected Radar/Sonar mode"
+                    )
+                if any(p.state.timestamp_s != 0 for p in platforms):
+                    raise ValueError(
+                        "edited platform timestamps must be zero (restart)"
+                    )
+        except (ValueError, TypeError, KeyError) as error:
+            self.network_controls.error_label.setText(str(error))
+            return
+        self.timer.stop()
+        self.world.reset()
+        self.world.sensor_platforms = platforms
+        self.world.checkpoint_reset_state()
+        self.reset()
+
+    def _set_network_preset(self, name: str) -> None:
+        self.timer.stop()
+        environment, beam = self.world.environment_config, self.world.beam_config
+        world = (
+            single_stationary_target(min(1500, self.sensor_config.max_range_m / 2))
+            if name == "Monostatic"
+            else bistatic_scenario(
+                self.sensor_config, multistatic=name == "Multistatic"
+            )
+        )
+        world.environment_config, world.beam_config = environment, beam
+        self.world = world
+        self.reset()
+        self.platform_controls.set_from_world(world)
+
+    def _select_source(self, source: tuple[str, str] | None) -> None:
+        if self.sensor_network is None or source not in self.sensor_network.links:
+            return
+        self.selected_link = source
+        self.sensor = self.sensor_network.links[source].sensor
+        self.ppi_view.set_max_range(self.sensor.config.max_range_m)
+        if self.last_source_frames:
+            chosen = next(
+                r
+                for r in self.last_source_frames
+                if (r.range_angle_product.emitter_id, r.range_angle_product.receiver_id)
+                == source
+            )
+            self._present_frame(
+                replace(chosen, source_frames=self.last_source_frames),
+                0,
+                perf_counter(),
+            )
+        self._refresh_world_views(update_editor=False)
 
 
 def run_application() -> int:

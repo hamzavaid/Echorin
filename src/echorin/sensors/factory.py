@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from echorin.config import SensorConfig, SensorMode
 from echorin.environment.config import EnvironmentConfig
 from echorin.models.geometry import SensorPose
@@ -67,6 +69,9 @@ def create_link_sensor(
     )
     if any(getattr(emitter.config, k) != getattr(receiver.config, k) for k in fields):
         raise ValueError("TX/RX must have compatible medium and waveform sampling")
+    environment = environment or EnvironmentConfig()
+    if receiver.noise_model is not None:
+        environment = replace(environment, receiver_noise=receiver.noise_model)
     sensor = create_sensor(
         receiver.config,
         receiver_pose,

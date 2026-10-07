@@ -22,3 +22,4 @@ class FrameResult:
     tracks: list[Any] = field(default_factory=list)
     ground_truth: list[Any] | None = None
     timing_metrics_s: dict[str, float] = field(default_factory=dict)
+    source_frames: list[Any] = field(default_factory=list)

@@ -62,12 +62,18 @@ class RangeAngleView(QWidget):
     def set_product(self, product: RangeAngleProduct) -> None:
         """Plot power and physical axes from a beamformed sensor product."""
         self.product = product
+        self.plot.setLabel(
+            "bottom", "Half-path range" if product.is_bistatic else "Range", units="m"
+        )
+        self.plot.setTitle(
+            f"{product.emitter_id or 'monostatic'} → {product.receiver_id}"
+        )
         ranges = product.ranges_m
         angles = np.rad2deg(product.bearings_rad)
         self._display_stride = max(1, int(np.ceil(len(ranges) / 2048)))
         dx = float(ranges[1] - ranges[0]) * self._display_stride
         dy = float(angles[1] - angles[0])
-        last_displayed = ranges[::self._display_stride][-1]
+        last_displayed = ranges[:: self._display_stride][-1]
         self.image_item.setRect(
             QRectF(
                 float(ranges[0] - dx / 2),
@@ -82,7 +88,8 @@ class RangeAngleView(QWidget):
         """Mark derived range-angle detections without consulting truth."""
         values = [d for d in detections if np.isfinite(d.bearing_rad)]
         self.detection_item.setData(
-            x=[d.range_m for d in values], y=[np.rad2deg(d.bearing_rad) for d in values]
+            x=[d.display_range_m for d in values],
+            y=[np.rad2deg(d.bearing_rad) for d in values],
         )
 
     def clear_product(self) -> None:
@@ -96,7 +103,7 @@ class RangeAngleView(QWidget):
     def _render(self) -> None:
         if self.product is None:
             return
-        display_power = self.product.power[:, ::self._display_stride]
+        display_power = self.product.power[:, :: self._display_stride]
         image = (
             to_db(np.sqrt(display_power))
             if self.scale_combo.currentText() == "dB"
@@ -128,7 +135,8 @@ class RangeAngleView(QWidget):
         self.cursor_y.show()
         level = float(to_db(np.sqrt(self.product.power[a : a + 1, r : r + 1]))[0, 0])
         self.readout.setText(
-            f"Range {ranges[r]:.2f} m | bearing {angles[a]:.1f} deg "
+            f"{'Half-path' if self.product.is_bistatic else 'Range'} "
+            f"{ranges[r]:.2f} m | bearing {angles[a]:.1f} deg "
             f"| {level:.1f} dB | bin ({a}, {r})"
         )
         self.cell_selected.emit(a, r)

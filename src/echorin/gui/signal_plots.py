@@ -69,6 +69,14 @@ class SignalPlots(QWidget):
         """Display the velocity spectrum at one selected range bin."""
         if not 0 <= selected_range_bin < product.spectrum.shape[1]:
             raise ValueError("selected_range_bin lies outside Doppler product")
+        self.range_plot.setLabel(
+            "bottom", "Half-path range" if product.is_bistatic else "Range", units="m"
+        )
+        self.doppler_plot.setLabel(
+            "bottom",
+            "Half-path rate" if product.is_bistatic else "Radial velocity",
+            units="m/s",
+        )
         self.doppler_curve.setData(
             product.radial_velocity_mps,
             product.magnitude[:, selected_range_bin],

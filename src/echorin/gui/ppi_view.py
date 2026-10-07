@@ -13,6 +13,8 @@ from echorin.gui.visualization_data import track_overlay
 from echorin.models.detection import Detection
 from echorin.models.geometry import SensorPose
 from echorin.models.track import Track, TrackStatus
+from echorin.sensors.components import SensorPlatform
+from echorin.sensors.scan import ScanScheduler
 from echorin.simulation.target import Target
 
 
@@ -88,6 +90,20 @@ class PpiView(QWidget):
         )
         self._beam_visible = True
         self._beam_directional = False
+        self.device_label_items: dict[str, pg.TextItem] = {}
+        self.device_heading_items: dict[str, pg.PlotDataItem] = {}
+        self.device_beam_items: dict[str, pg.PlotDataItem] = {}
+        self.transmitter_item = pg.ScatterPlotItem(
+            symbol="t", size=13, pen="y", brush="#ffd166"
+        )
+        self.receiver_item = pg.ScatterPlotItem(
+            symbol="s", size=11, pen="c", brush="#59d9ed"
+        )
+        self.plot.addItem(self.transmitter_item)
+        self.plot.addItem(self.receiver_item)
+        self.baseline_item = self.plot.plot(
+            pen=pg.mkPen("#637f93", width=1), name="Selected TX–RX baseline"
+        )
         self.detection_item = pg.ScatterPlotItem(
             symbol="x", size=11, pen=pg.mkPen("r", width=2)
         )
@@ -182,6 +198,82 @@ class PpiView(QWidget):
         self._beam_visible = visible
         for item in self.beam_items:
             item.setVisible(visible and self._beam_directional)
+        for item in self.device_beam_items.values():
+            item.setVisible(visible)
+
+    def set_devices(
+        self, platforms: tuple[SensorPlatform, ...], selected: tuple[str, str] | None
+    ) -> None:
+        """Draw known mounted TX/RX positions/headings, never inferred truth."""
+        devices = []
+        for platform in platforms:
+            devices.extend(
+                (e.emitter_id, "TX", platform.emitter_pose(e), e.beam, 0)
+                for e in platform.emitters
+            )
+            devices.extend(
+                (
+                    r.receiver_id,
+                    "RX",
+                    platform.receiver_pose(r),
+                    r.beam,
+                    r.array_config.orientation_rad,
+                )
+                for r in platform.receivers
+            )
+        active = {f"{kind}:{key}" for key, kind, _, _, _ in devices}
+        for collection in (
+            self.device_label_items,
+            self.device_heading_items,
+            self.device_beam_items,
+        ):
+            for stale in set(collection) - active:
+                self.plot.removeItem(collection.pop(stale))
+        for kind, item in (("TX", self.transmitter_item), ("RX", self.receiver_item)):
+            poses = [pose for _, category, pose, _, _ in devices if kind == category]
+            item.setData(x=[p.x_m for p in poses], y=[p.y_m for p in poses])
+        for key, kind, pose, beam, orientation in devices:
+            identity = f"{kind}:{key}"
+            color = "#ffd166" if kind == "TX" else "#59d9ed"
+            if identity not in self.device_label_items:
+                label = pg.TextItem(anchor=(0, 1), color=color)
+                self.plot.addItem(label)
+                self.device_label_items[identity] = label
+                self.device_heading_items[identity] = self.plot.plot(pen=color)
+                self.device_beam_items[identity] = self.plot.plot(pen=color)
+            label = self.device_label_items[identity]
+            label.setText(f"{kind} {key}", color=color)
+            label.setPos(pose.x_m, pose.y_m)
+            length = 0.07 * self.max_range_m
+            heading = pose.heading_rad
+            self.device_heading_items[identity].setData(
+                [pose.x_m, pose.x_m + length * np.cos(heading)],
+                [pose.y_m, pose.y_m + length * np.sin(heading)],
+            )
+            angle = (
+                heading
+                + orientation
+                + ScanScheduler(beam.scan).boresight(pose.timestamp_s)
+            )
+            arc = np.linspace(
+                angle - beam.display_width_rad / 2,
+                angle + beam.display_width_rad / 2,
+                40,
+            )
+            radius = 0.25 * self.max_range_m
+            self.device_beam_items[identity].setData(
+                np.r_[pose.x_m, pose.x_m + radius * np.cos(arc), pose.x_m],
+                np.r_[pose.y_m, pose.y_m + radius * np.sin(arc), pose.y_m],
+            )
+            self.device_beam_items[identity].setVisible(
+                self._beam_visible and beam.kind != "isotropic"
+            )
+        lookup = {(kind, key): pose for key, kind, pose, _, _ in devices}
+        if selected is not None:
+            tx, rx = lookup[("TX", selected[0])], lookup[("RX", selected[1])]
+            self.baseline_item.setData([tx.x_m, rx.x_m], [tx.y_m, rx.y_m])
+        else:
+            self.baseline_item.setData([], [])
 
     def set_array_fov_visible(self, visible: bool) -> None:
         for item in self.array_fov_items:

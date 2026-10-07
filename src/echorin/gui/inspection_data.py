@@ -89,6 +89,16 @@ class InspectionModel:
             ),
             "Receiver": detection.receiver_id,
         }
+        if detection.emitter_id is not None:
+            fields["Emitter"] = detection.emitter_id
+        if detection.path_length_m is not None:
+            fields["Range"] = f"{detection.range_m:.3f} m (inferred RX distance)"
+            fields["Total path length"] = f"{detection.path_length_m:.3f} m"
+            fields["Path rate"] = (
+                f"{detection.path_rate_mps:.3f} m/s"
+                if detection.path_rate_mps is not None
+                else "Unavailable"
+            )
         self.selected_kind = "detection"
         self.selected_id = index
         self.current = InspectionDetails(f"Detection {index + 1}", fields)

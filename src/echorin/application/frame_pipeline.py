@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -25,9 +26,12 @@ from echorin.dsp.sidelobes import suppress_matched_filter_sidelobes
 from echorin.models.detection import Detection
 from echorin.models.track import Track
 from echorin.propagation.geometry import receiver_range_from_path
-from echorin.sensors.base import ReflectiveTarget, SensorFrame
+from echorin.sensors.base import ArrayPulseData, ReflectiveTarget, SensorFrame
 from echorin.sensors.echo import SyntheticMonostaticSensor
 from echorin.tracking.tracker import MultiTargetTracker
+
+if TYPE_CHECKING:
+    from echorin.application.sensor_network import LinkKey, SensorNetwork
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +47,41 @@ class FrameComputation:
     detections: tuple[Detection, ...]
     tracks: tuple[Track, ...]
     timing_metrics_s: dict[str, float]
+    source_frames: tuple[FrameComputation, ...] = ()
+    array_data: ArrayPulseData | None = None
+
+
+def process_workspace_frame(
+    targets: Sequence[ReflectiveTarget],
+    timestamp_s: float,
+    sensor: SyntheticMonostaticSensor,
+    signal_processor: SignalProcessor,
+    cfar_detector: CaCfarDetector,
+    tracker: MultiTargetTracker,
+    pulse_count: int,
+    network: SensorNetwork | None = None,
+    selected_link: LinkKey | None = None,
+) -> FrameComputation:
+    """Preserve legacy processing or return a selected, source-scoped stream."""
+    if network is None:
+        return process_frame(
+            targets,
+            timestamp_s,
+            sensor,
+            signal_processor,
+            cfar_detector,
+            tracker,
+            pulse_count,
+        )
+    results = network.process(targets, timestamp_s, pulse_count)
+    selected = results[selected_link or next(iter(results))]
+    totals = {
+        phase: sum(result.timing_metrics_s[phase] for result in results.values())
+        for phase in ("sensing_s", "dsp_s", "tracking_s")
+    }
+    return replace(
+        selected, source_frames=tuple(results.values()), timing_metrics_s=totals
+    )
 
 
 def process_frame(
@@ -151,4 +190,5 @@ def process_frame(
             "dsp_s": dsp_s,
             "tracking_s": tracking_s,
         },
+        array_data=array_frame,
     )

@@ -122,8 +122,8 @@ class SensorConfig:
             "propagation_speed_mps",
         )
         for name in positive_fields:
-            if getattr(self, name) <= 0.0:
-                raise ValueError(f"{name} must be positive")
+            if not isfinite(getattr(self, name)) or getattr(self, name) <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
         if self.mode is SensorMode.SONAR and self.propagation_speed_mps > 10_000.0:
             raise ValueError(
                 "sonar propagation speed must be explicitly configured for acoustics"

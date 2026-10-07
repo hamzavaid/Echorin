@@ -147,6 +147,18 @@ class FrameRecorder:
                     else None
                 ),
                 "timing_metrics_s": dict(frame.timing_metrics_s),
+                "source_frames": [
+                    {
+                        "timestamp_s": source.timestamp_s,
+                        "emitter_id": source.range_angle_product.emitter_id,
+                        "receiver_id": source.range_angle_product.receiver_id,
+                        "receiver_pose": asdict(source.array_data.receiver_pose),
+                        "transmitter_pose": asdict(source.array_data.transmitter_pose),
+                        "detections": [asdict(d) for d in source.detections],
+                        "tracks": [self._track_record(t) for t in source.tracks],
+                    }
+                    for source in frame.source_frames
+                ],
             }
         )
 
@@ -185,11 +197,20 @@ class FrameRecorder:
             "snr_db",
             "confidence",
             "status",
+            "emitter_id",
+            "receiver_id",
+            "path_length_m",
+            "path_rate_mps",
         )
         with Path(path).open("w", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=fieldnames)
             writer.writeheader()
-            for frame in self.records:
+            rows = [
+                source
+                for frame in self.records
+                for source in (frame.get("source_frames") or [frame])
+            ]
+            for frame in rows:
                 for detection in frame["detections"]:
                     writer.writerow(
                         {
@@ -200,6 +221,10 @@ class FrameRecorder:
                             "radial_velocity_mps": detection["radial_velocity_mps"],
                             "snr_db": detection["snr_db"],
                             "confidence": detection["confidence"],
+                            "emitter_id": detection.get("emitter_id"),
+                            "receiver_id": detection.get("receiver_id"),
+                            "path_length_m": detection.get("path_length_m"),
+                            "path_rate_mps": detection.get("path_rate_mps"),
                         }
                     )
                 for track in frame["tracks"]:
@@ -213,6 +238,8 @@ class FrameRecorder:
                             "vx_mps": track["vx_mps"],
                             "vy_mps": track["vy_mps"],
                             "status": track["status"],
+                            "emitter_id": frame.get("emitter_id"),
+                            "receiver_id": frame.get("receiver_id"),
                         }
                     )
 

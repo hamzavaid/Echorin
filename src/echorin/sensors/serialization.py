@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from echorin.config import ArrayConfig, NoiseConfig, SensorConfig, SensorMode
+from echorin.environment.config import ReceiverNoiseConfig
 from echorin.environment.serialization import beam_from_dict
 from echorin.models.platform import MountTransform, PlatformState
 from echorin.sensors.components import Emitter, Receiver, SensorPlatform
@@ -58,6 +59,8 @@ def platforms_from_data(data: list[dict[str, Any]]) -> tuple[SensorPlatform, ...
             device["mount"] = MountTransform(**device.get("mount", {}))
             device["beam"] = beam_from_dict(device.get("beam", {}))
             device["array_config"] = ArrayConfig(**device.get("array_config", {}))
+            if device.get("noise_model") is not None:
+                device["noise_model"] = ReceiverNoiseConfig(**device["noise_model"])
             receivers.append(Receiver(**device))
         values["emitters"], values["receivers"] = tuple(emitters), tuple(receivers)
         platforms.append(SensorPlatform(**values))

@@ -99,6 +99,21 @@ class World:
         """Targets in stable insertion order, exposed without the backing map."""
         return tuple(self._targets.values())
 
+    def update_device_configs(self, platforms: tuple[SensorPlatform, ...]) -> None:
+        """Replace devices while keeping the original platform reset kinematics."""
+        lookup = {p.platform_id: p for p in platforms}
+        if set(lookup) != {p.platform_id for p in self.sensor_platforms}:
+            raise ValueError("device-only update must preserve platform identities")
+        self.sensor_platforms = platforms
+        self._initial_sensor_platforms = tuple(
+            replace(
+                p,
+                emitters=lookup[p.platform_id].emitters,
+                receivers=lookup[p.platform_id].receivers,
+            )
+            for p in self._initial_sensor_platforms
+        )
+
     def add_target(self, target: Target) -> None:
         """Add a uniquely identified target."""
         if target.target_id in self._targets:

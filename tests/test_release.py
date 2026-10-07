@@ -146,8 +146,8 @@ def test_release_metadata_public_docs_and_assets_are_complete() -> None:
         (ROOT / "benchmarks" / "tracking_results.json").read_text(encoding="utf-8")
     )
 
-    assert echorin.__version__ == "1.4.0"
-    assert 'version = "1.4.0"' in pyproject
+    assert echorin.__version__ == "1.5.0"
+    assert 'version = "1.5.0"' in pyproject
     for term in ("Radar", "Sonar", "Kalman", "Doppler", "CA-CFAR", "pytest"):
         assert term in readme
     for term in ("two-way", "matched filter", "Doppler", "CA-CFAR", "Kalman"):
@@ -235,3 +235,21 @@ def test_v14_release_docs_and_environment_evidence_are_public():
         encoding="utf-8"
     )
     assert "CA-CFAR" in svg and "Radar" in svg and "Sonar" in svg and "seed 7" in svg
+
+
+def test_v15_release_docs_and_bistatic_evidence_are_public():
+    notes = (ROOT / "docs" / "releases" / "v1.5.md").read_text(encoding="utf-8")
+    for term in (
+        "bistatic",
+        "multistatic",
+        "time-division",
+        "half-path",
+        "schema",
+        "no fusion",
+        "approximation",
+    ):
+        assert term in notes.lower()
+    png = (ROOT / "screenshots" / "echorin-multistatic.png").read_bytes()
+    assert png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 10000
+    svg = (ROOT / "benchmarks" / "bistatic_validation.svg").read_text(encoding="utf-8")
+    assert "Radar" in svg and "Sonar" in svg and "seed 7" in svg

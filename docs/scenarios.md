@@ -125,3 +125,39 @@ baseline versus field-contaminated matched-filter profile and the corresponding
 CA-CFAR thresholds in both modes. Regenerate it and the environment workspace
 capture with `python examples/capture_environment_demo.py` after installing
 the optional `release` dependencies. The older release captures remain intact.
+
+## v1.5 moving bistatic / multistatic references
+
+In View → Transmitters / Receivers choose Bistatic (one moving TX, one moving RX)
+or Multistatic (two of each), then Load scenario. The target starts at three-
+tenths maximum range east and one-tenth north. Transmitters/receivers move under
+independent constant-velocity trajectories; mounts and other trajectory types
+can be edited in the validated JSON. Default Radar target speed is capped at
+300 m/s; Sonar speeds respect its narrow unambiguous Doppler interval. Reload a
+preset after changing medium to obtain appropriate range/speed scales.
+
+The source selector displays one TX→RX stream's signal products/measurements
+and local tracks; all pairs are processed. Legacy Single/Crossing controls
+switch back to their original monostatic scenes. Ground-truth targets remain
+an optional overlay. Device IDs/positions/paths are known configuration, not
+hidden target measurements. Platform trail visibility also applies to network
+platform paths. Per-device beams are edited in network JSON; legacy platform
+controls apply only to legacy scenes.
+
+Run `python benchmarks/run_bistatic_benchmark.py` for full moving two-TX/two-RX
+evidence in both media (32 pulses, seed 7, four 0.05-s frames). Radar deliberately
+uses carrier 4 MHz and PRF 20 Hz to resolve nonzero Doppler; other Radar defaults
+remain unchanged. Each link must detect every frame and match analytic total
+path, arrival bearing and total path rate within their configured physical bins.
+Repeat runs compare identical measured outputs, excluding timing. The
+[error figure](../benchmarks/bistatic_validation.svg) normalizes all errors by
+these bin widths. Recreate it and the
+[workspace screenshot](../screenshots/echorin-multistatic.png) with
+`python examples/capture_bistatic_demo.py`.
+
+Scenario schema 4 serializes explicit devices/platforms; empty networks remain
+schema 3 and schemas 1–3 still migrate. Frame schema 2 adds optional
+`source_frames` with source IDs, known device poses and truth-free measurements/
+local tracks; CSV exports all source rows with pair identity. No cross-source
+fusion is performed. Simplified secondary paths/clutter can generate nuisance
+tracks exactly as in the monostatic simulation.

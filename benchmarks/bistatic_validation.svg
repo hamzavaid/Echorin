@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="700">
+<rect width="1100" height="700" fill="#101820"/>
+<g font-family="sans-serif" fill="#e8f0f2">
+<text x="40" y="35" font-size="22">Moving bistatic / multistatic validation</text>
+<text x="40" y="60">seed 7; four frames; 32 pulses; errors / configured bin width</text>
+<text x="40" y="85">Radar: 4 MHz, PRF 20 Hz, 3 km. Sonar: 20 kHz, PRF 3 Hz, 60 m. Noise sigma 0.0001.</text>
+<text x="270" y="120" font-size="17">Total path</text>
+<path d="M480 140 V625" stroke="#738b98" stroke-dasharray="4 4"/>
+<text x="474" y="648">1 bin</text>
+<text x="535" y="120" font-size="17">Arrival bearing</text>
+<path d="M745 140 V625" stroke="#738b98" stroke-dasharray="4 4"/>
+<text x="739" y="648">1 bin</text>
+<text x="800" y="120" font-size="17">Total path rate</text>
+<path d="M1010 140 V625" stroke="#738b98" stroke-dasharray="4 4"/>
+<text x="1004" y="648">1 bin</text>
+<text x="40" y="165">Radar tx-1 → rx-1</text>
+<rect x="270" y="145" width="92.50" height="26" fill="#50e0a1"/>
+<text x="270" y="189">0.440 bin; 4/4 hits</text>
+<rect x="535" y="145" width="74.85" height="26" fill="#50e0a1"/>
+<text x="535" y="189">0.356 bin; 4/4 hits</text>
+<rect x="800" y="145" width="20.68" height="26" fill="#50e0a1"/>
+<text x="800" y="189">0.098 bin; 4/4 hits</text>
+<text x="40" y="223">Radar tx-1 → rx-2</text>
+<rect x="270" y="203" width="102.43" height="26" fill="#50e0a1"/>
+<text x="270" y="247">0.488 bin; 4/4 hits</text>
+<rect x="535" y="203" width="98.24" height="26" fill="#50e0a1"/>
+<text x="535" y="247">0.468 bin; 4/4 hits</text>
+<rect x="800" y="203" width="22.92" height="26" fill="#50e0a1"/>
+<text x="800" y="247">0.109 bin; 4/4 hits</text>
+<text x="40" y="281">Radar tx-2 → rx-1</text>
+<rect x="270" y="261" width="92.50" height="26" fill="#50e0a1"/>
+<text x="270" y="305">0.440 bin; 4/4 hits</text>
+<rect x="535" y="261" width="74.85" height="26" fill="#50e0a1"/>
+<text x="535" y="305">0.356 bin; 4/4 hits</text>
+<rect x="800" y="261" width="17.65" height="26" fill="#50e0a1"/>
+<text x="800" y="305">0.084 bin; 4/4 hits</text>
+<text x="40" y="339">Radar tx-2 → rx-2</text>
+<rect x="270" y="319" width="88.06" height="26" fill="#50e0a1"/>
+<text x="270" y="363">0.419 bin; 4/4 hits</text>
+<rect x="535" y="319" width="98.24" height="26" fill="#50e0a1"/>
+<text x="535" y="363">0.468 bin; 4/4 hits</text>
+<rect x="800" y="319" width="26.11" height="26" fill="#50e0a1"/>
+<text x="800" y="363">0.124 bin; 4/4 hits</text>
+<text x="40" y="397">Sonar tx-1 → rx-1</text>
+<rect x="270" y="377" width="76.79" height="26" fill="#50e0a1"/>
+<text x="270" y="421">0.366 bin; 4/4 hits</text>
+<rect x="535" y="377" width="91.22" height="26" fill="#50e0a1"/>
+<text x="535" y="421">0.434 bin; 4/4 hits</text>
+<rect x="800" y="377" width="19.97" height="26" fill="#50e0a1"/>
+<text x="800" y="421">0.095 bin; 4/4 hits</text>
+<text x="40" y="455">Sonar tx-1 → rx-2</text>
+<rect x="270" y="435" width="32.18" height="26" fill="#50e0a1"/>
+<text x="270" y="479">0.153 bin; 4/4 hits</text>
+<rect x="535" y="435" width="65.59" height="26" fill="#50e0a1"/>
+<text x="535" y="479">0.312 bin; 4/4 hits</text>
+<rect x="800" y="435" width="23.13" height="26" fill="#50e0a1"/>
+<text x="800" y="479">0.110 bin; 4/4 hits</text>
+<text x="40" y="513">Sonar tx-2 → rx-1</text>
+<rect x="270" y="493" width="71.06" height="26" fill="#50e0a1"/>
+<text x="270" y="537">0.338 bin; 4/4 hits</text>
+<rect x="535" y="493" width="91.22" height="26" fill="#50e0a1"/>
+<text x="535" y="537">0.434 bin; 4/4 hits</text>
+<rect x="800" y="493" width="16.73" height="26" fill="#50e0a1"/>
+<text x="800" y="537">0.080 bin; 4/4 hits</text>
+<text x="40" y="571">Sonar tx-2 → rx-2</text>
+<rect x="270" y="551" width="26.45" height="26" fill="#50e0a1"/>
+<text x="270" y="595">0.126 bin; 4/4 hits</text>
+<rect x="535" y="551" width="65.59" height="26" fill="#50e0a1"/>
+<text x="535" y="595">0.312 bin; 4/4 hits</text>
+<rect x="800" y="551" width="26.37" height="26" fill="#50e0a1"/>
+<text x="800" y="595">0.126 bin; 4/4 hits</text>
+<text x="40" y="680">Stop-and-hop approximation. Source-scoped CV tracks; no fusion. Every measured error is below one bin.</text>
+</g></svg>

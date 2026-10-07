@@ -319,3 +319,60 @@ noise power. Colored/impulsive/correlated noise and structured clutter violate
 that assumption: extra detections and missed targets are legitimate simulation
 outcomes, not secretly corrected using truth. Improved CFAR/tracking algorithms
 are outside v1.4.
+
+## Bistatic and multistatic path measurements (v1.5)
+
+Let target, transmitter and receiver positions be $p$, $p_{TX}$ and $p_{RX}$.
+The outward leg unit vectors point from each device toward the target:
+
+$$
+R_{TX}=\|p-p_{TX}\|,\quad R_{RX}=\|p-p_{RX}\|,\quad
+L=R_{TX}+R_{RX},\quad \tau=L/c.
+$$
+
+With device/target velocities $v_{TX},v_{RX},v$, narrowband path-rate Doppler is
+
+$$
+\dot L=(v-v_{TX})\cdot u_{TX}+(v-v_{RX})\cdot u_{RX},
+\qquad f_D=\dot L/\lambda,\qquad \lambda=c/f_c.
+$$
+
+Positive Doppler means increasing total path, matching Echorin's established
+convention. Co-located TX/RX with equal velocity reduce exactly to $L=2R$ and
+$f_D=2v_r/\lambda$. Both geometry and boresight are held over a CPI; Doppler
+phase advances by $2\pi f_D n/PRF$. This stop-and-hop model ignores within-CPI
+range migration and retarded-time platform motion.
+
+Fast-time matched-filter bins measure $L/2$ with spacing $c/(2f_s)$, **not**
+receiver distance. Doppler bins have total path-rate spacing $\lambda PRF/N$;
+the backward-compatible displayed numeric axis is $\dot L/2$, explicitly labeled
+**Half-path rate**. Monostatic plots retain radial-velocity labels. Range-Angle
+power still comes from Bartlett arrival DOA at the receiver; TX pointing is not
+substituted for a measured bearing. The source selector chooses a transmitter
+slot and receiver, not an ideal target channel.
+
+For measured world-frame arrival unit vector $u$ and known baseline
+$b=p_{TX}-p_{RX}$, the receive-ray/ellipse intersection gives
+
+$$
+r=\frac{L^2-\|b\|^2}{2(L-b\cdot u)},\qquad \hat p=p_{RX}+ru.
+$$
+
+The inversion rejects $L\leq\|b\|$ and degenerate denominators. Impossible
+cells remain in signal products but do not become Cartesian tracks. Position
+covariance uses the analytic Jacobian with respect to measured $L$ and bearing,
+including the factor of two from configured half-path range uncertainty. This
+is measurement preprocessing for the existing CV Kalman filter, not an EKF.
+It uses no exact target coordinates. Bistatic Doppler alone cannot uniquely
+recover target velocity or receiver radial velocity; the inspector reports
+total path rate and marks receiver radial velocity unavailable.
+
+Independent one-way TX and RX amplitude gains multiply. With legacy bounded
+inverse-power amplitude law $a(R)$, two-leg amplitude is
+$\rho\sqrt{a(R_{TX})a(R_{RX})}$ times gains, configured path attenuation,
+square-root relative transmit power and total-length absorption. The co-located
+case retains legacy arithmetic exactly. Multipath extra length is shared equally
+between phenomenological legs and inherits direct Doppler. No calibrated radar
+equation, acoustic solver, occlusion or absolute path carrier phase is implied.
+Multiple emitters use labeled time-division slots; tracks remain per source,
+with no fusion. See the [moving references](scenarios.md).

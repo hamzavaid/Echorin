@@ -146,3 +146,38 @@ Scenario schema 3 persists all environment and scan settings; schema 1/2 load
 with empty environment/isotropic defaults. Frame export remains schema 2 and
 truth-free. Saved scenarios describe a fresh seeded field anchored to their
 starting receiver pose, not a checkpoint of a previously evolved field.
+
+## v1.5 generalized TX/RX boundary
+
+`sensors/components.py` defines typed `Emitter`, `Receiver` and `SensorPlatform`
+composition. The world owns independent platform states/trajectories and bounded
+histories, while mounts produce acquisition-time device poses. The legacy
+single-platform interface remains unchanged for old scenes. Centralized
+`propagation/geometry.py` evaluates the two moving legs and bistatic Doppler.
+`create_link_sensor` configures the **same** raw-array synthesis, with independent
+TX/RX beam gains, per-leg attenuation and source IDs. No ideal per-target output
+enters the detector; all targets/scatterers/paths sum in physical array channels.
+
+`application/sensor_network.py` schedules bounded, synchronized time-division
+TX slots and processes every TX/RX pair through `process_frame`. Each stream has
+its own unchanged CV tracker; no fusion exists. `process_workspace_frame` keeps
+the legacy call path or publishes the selected stream plus `source_frames` for
+all raw arrays/DSP products/detections/tracks. This synchronous layer has no Qt
+imports; live execution still uses one worker and stale-generation rejection.
+
+Range products use half total path length. Doppler's legacy numeric velocity
+axis is half path rate in bistatic mode, marked with `is_bistatic` and labeled by
+the GUI. Detections carry measured total path/rate and emitter/receiver IDs.
+Known device poses plus measured arrival angle intersect the bistatic ellipse
+to infer receiver distance; no target position/bearing is read downstream.
+The conversion Jacobian propagates measurement covariance into world coordinates.
+Bistatic receiver radial velocity is unavailable, not secretly inferred from truth.
+
+The Transmitters / Receivers dock validates scenario/device JSON atomically,
+offers medium-scaled moving presets, and selects source-scoped views. The PPI
+shows known device positions, headings, beams, platform paths and TX/RX baseline.
+Track IDs are local to the selected source pair. Scenario schema 4 adds explicit
+platform/device configuration; legacy worlds still write schema 3. Frame schema
+2 gains optional truth-free source summaries; CSV flattens all streams and adds
+source/path columns. `bistatic_benchmark.py` alone uses target truth to validate
+measurements against analytic references. See [v1.5 limits](releases/v1.5.md).

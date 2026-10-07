@@ -1,4 +1,4 @@
-# Echorin v1.4
+# Echorin v1.5
 
 Echorin is a real-time 2D Radar and Sonar simulation application that keeps
 ground truth separate from sensing. Moving point targets produce delayed,
@@ -57,8 +57,24 @@ samples before the existing DSP. Defaults preserve v1.3 sensing behavior.
 
 [Clutter and CA-CFAR comparison](benchmarks/environment_comparison.svg)
 
+v1.5 adds separate mounted emitters and receivers, independent moving TX/RX
+platforms, generalized bistatic delay/Doppler and time-division multistatic
+acquisition. The Transmitters / Receivers dock offers moving presets, validated
+device configuration and a TX→RX product selector. Tracks remain source-scoped
+(no fusion). Bistatic plots label half-path range/rate; the inspector exposes
+measured total path and receiver distance inferred from measured arrival angle.
+Existing co-located sensing retains exact samples and the same DSP pipeline.
+
+![Multistatic workspace](screenshots/echorin-multistatic.png)
+
+[Moving bistatic validation](benchmarks/bistatic_validation.svg) ·
+[v1.5 usage and limitations](docs/releases/v1.5.md)
+
+Run `python benchmarks/run_bistatic_benchmark.py` for seed/config/bin-error and
+timing evidence. Regenerate public media with `python examples/capture_bistatic_demo.py`.
+
 - Constant-velocity scenarios with deterministic seeds and editable targets
-- Radar and Sonar modes through one validated monostatic sensor abstraction
+- Radar and Sonar modes through one shared monostatic/bistatic sensing engine
 - Rectangular and LFM chirp waveforms, physical two-way delay, attenuation, AWGN
 - FFT matched filtering, range profiles, fixed thresholds, and square-law CA-CFAR
 - Coherent pulse trains, Doppler spectra, and radial-velocity estimation
